@@ -216,3 +216,26 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+data/**
+!data/
+!data/raw/
+!data/features/
+!data/g6/
+!data/labels/
+!data/features/README.md
+*.parquet
+*.g6
+*.g6.gz
+*.s6
+*.sparse6
+*.sparse6.gz
+
+# Editors
+.vscode/
+.idea/
+
+# Local venvs
+venv/
+venv*/
+.venv/
