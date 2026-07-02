@@ -43,16 +43,19 @@ DEFAULT_G6 = _REPO_ROOT / "data" / "er" / "g6" / "all.g6"
 DEFAULT_OUT = _REPO_ROOT / "data" / "er" / "features"
 
 # Graph-topology feature columns, keyed by graph6 hash.
+# Redundant features are deliberately excluded to avoid collinearity that can
+# hurt training and mislead feature-importance analysis:
+#   edge_count                  -> kept as edge_density (its size-normalized form)
+#   cycle_count (= edges-n+1)   -> redundant with edge_count / density
+#   chromatic_index_lower_bound -> identical to max_degree (Vizing bound)
 GRAPH_CSV_HEADER = [
     "graph_id",       # graph6 hash (stable per topology)
     "n_vertices",
-    # size / sparsity
-    "edge_count",
+    # sparsity
     "edge_density",
     # bipartite / cycles
     "is_bipartite",
     "is_tree",
-    "cycle_count",
     "triangle_count",
     # diameter
     "diameter",
@@ -65,9 +68,8 @@ GRAPH_CSV_HEADER = [
     # clustering / spectral
     "avg_clustering",
     "spectral_gap",
-    # matching-decomp proxies (paper-motivated)
+    # matching-decomp proxy (paper-motivated)
     "max_matching_size",
-    "chromatic_index_lower_bound",
 ]
 
 log = logging.getLogger("er.features")
@@ -110,11 +112,9 @@ def _graph_row(graph_id: str, graph) -> dict:
     return {
         "graph_id": graph_id,
         "n_vertices": graph.number_of_nodes(),
-        "edge_count": p["edge_count"],
         "edge_density": round(p["edge_density"], 6),
         "is_bipartite": _bool_to_int(p["is_bipartite"]),
         "is_tree": _bool_to_int(p["is_tree"]),
-        "cycle_count": p["cycle_count"] if p["cycle_count"] is not None else "",
         "triangle_count": p["triangle_count"],
         "diameter": p["diameter"] if p["diameter"] is not None else "",
         "min_degree": p["min_degree"],
@@ -125,7 +125,6 @@ def _graph_row(graph_id: str, graph) -> dict:
         "avg_clustering": round(p["avg_clustering"], 6),
         "spectral_gap": round(p["spectral_gap"], 6),
         "max_matching_size": p["max_matching_size"],
-        "chromatic_index_lower_bound": p["chromatic_index_lower_bound"],
     }
 
 
