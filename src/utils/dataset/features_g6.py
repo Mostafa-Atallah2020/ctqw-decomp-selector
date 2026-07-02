@@ -39,8 +39,8 @@ from utils.graph.properties import calculate_graph_properties
 
 # g6 corpus lives in data/g6/, derived features in data/features/.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_G6 = _REPO_ROOT / "data" / "g6" / "all.g6"
-DEFAULT_OUT = _REPO_ROOT / "data" / "features"
+DEFAULT_G6 = _REPO_ROOT / "data" / "er" / "g6" / "all.g6"
+DEFAULT_OUT = _REPO_ROOT / "data" / "er" / "features"
 
 # Graph-topology feature columns, keyed by graph6 hash.
 GRAPH_CSV_HEADER = [
