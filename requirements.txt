@@ -5,6 +5,8 @@ scipy>=1.11
 # analysis plots
 matplotlib>=3.7
 pandas>=2.0
+seaborn>=0.13
+scikit-learn>=1.3
 
 # labeling: ground-truth CTQW decomposition costs
 ctqw-matching-decomp @ git+https://github.com/Mostafa-Atallah2020/ctqw-matching-decomp.git
