@@ -21,7 +21,7 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DATA = _REPO_ROOT / "data"
-DEFAULT_PLOTS = _REPO_ROOT / "data" / "analysis"
+DEFAULT_PLOTS = _REPO_ROOT / "results" / "analysis"
 
 # IEEE column widths, in inches (2-column template).
 IEEE_COL_WIDTH = 3.5    # single column
