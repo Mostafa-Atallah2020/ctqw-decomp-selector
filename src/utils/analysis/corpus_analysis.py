@@ -417,12 +417,12 @@ def plot_correlation_heatmaps(corpora, out_dir: Path, top_feats: list):
 
 
 def plot_feature_vs_target(corpora, out_dir: Path, top_feats: list):
-    """Scatter of every modeled feature vs delta_cx, one cell per (feature,
-    corpus). Layout is features x corpora (rows = features in importance order,
-    columns = corpora).
+    """Scatter of every modeled feature vs delta_cx, one cell per (corpus,
+    feature). Layout is corpora x features (rows = corpora, columns = features
+    in importance order) so the grid is wide, filling a landscape slide.
 
     Each feature axis is pooled-standardized (z-score across all corpora) so
-    the columns share a common x-scale; delta_cx uses a signed-log so both the
+    each column shares a common x-scale; delta_cx uses a signed-log so both the
     ties and the large tails stay visible.
     """
     import numpy as np
@@ -441,27 +441,27 @@ def plot_feature_vs_target(corpora, out_dir: Path, top_feats: list):
     zstd = {f: (both[f].std() or 1.0) for f in feats}
     names = list(corpora)
 
-    nrow, ncol = len(feats), len(names)
+    nrow, ncol = len(names), len(feats)          # corpora x features (wide)
     fig, axes = plt.subplots(nrow, ncol,
-                             figsize=(IEEE_PAGE_WIDTH, 1.05 * nrow),
-                             sharex="col", squeeze=False)
-    for i, f in enumerate(feats):
-        for j, name in enumerate(names):
+                             figsize=(1.35 * ncol, 1.55 * nrow),
+                             sharex="col", sharey="row", squeeze=False)
+    for i, name in enumerate(names):
+        df = corpora[name]
+        for j, f in enumerate(feats):
             ax = axes[i][j]
-            df = corpora[name]
             xz = (df[f] - zmean[f]) / zstd[f]
             ax.scatter(xz, slog(df.delta_cx), s=4, alpha=0.35,
                        marker=CORPUS_MARKER[name], color=CORPUS_COLOR[name],
                        edgecolors="none", rasterized=True)
             ax.axhline(0, color="k", lw=0.5, ls="--")
-            ax.tick_params(labelsize=5)
+            ax.tick_params(labelsize=6)
             if i == 0:
-                ax.set_title(CORPUS_LABEL[name], fontsize=7)
+                ax.set_title(f, fontsize=7, rotation=30, ha="left")
             if j == 0:
-                ax.set_ylabel(f, fontsize=6)
+                ax.set_ylabel(CORPUS_LABEL[name], fontsize=8)
             if i == nrow - 1:
                 ax.set_xlabel("z", fontsize=6)
-    fig.suptitle("delta_cx (signed-log) vs each feature, per corpus", y=1.002)
+    fig.suptitle("delta_cx (signed-log) vs each feature, per corpus", y=1.005)
     fig.tight_layout()
     _savefig(fig, out_dir, "feature_vs_target")
     plt.close(fig)
