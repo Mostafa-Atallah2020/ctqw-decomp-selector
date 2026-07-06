@@ -210,46 +210,80 @@ def _train_history(model, Xtr, ytr, dcx_tr, Xva, yva, dcx_va):
     iteration, then return (history_rows, fitted_model) so the SAME estimator is
     used for the reported metrics.
 
-    scikit-learn's LogisticRegression exposes no per-iteration loss (see issue
-    #26494); the documented way to trace convergence is `warm_start` with an
-    increasing iteration cap. We refit with warm_start=True, max_iter growing by
-    one each step, reusing the previous solution, and score after each. lbfgs
-    reports `n_iter_`, so we stop once it has actually converged.
+    Uses scikit-learn's official callback API (SLEP023, sklearn >= 1.10): a
+    custom FitCallback scores the full train/val metric set at each solver
+    iteration via `on_fit_task_end`, reading the per-iteration model off the
+    context. This replaces the earlier `warm_start`/`max_iter` refit trick (which
+    was needed only because older sklearn exposed no per-iteration hook; see
+    issue #26494, resolved by PR #33322/#33847).
 
-    Fallback: if the estimator does not support warm-start iteration, fit once
-    and log a single final point. The function never fails the run.
+    Fallback: if the installed sklearn lacks the callback API, fall back to the
+    warm_start trace so the function still works on older versions.
     """
     import numpy as np
     from sklearn.base import clone
     classes = np.array([0, 1])
 
-    def scored(step, clf):
+    def score_clf(iteration, clf):
         ptr = clf.predict_proba(Xtr)[:, 1]
         pva = clf.predict_proba(Xva)[:, 1]
-        row = {"iteration": step}
+        row = {"iteration": iteration}
         row.update(_epoch_scores("train", ytr, ptr, dcx_tr, classes))
         row.update(_epoch_scores("val", yva, pva, dcx_va, classes))
         return row
 
+    # --- Official callback path (sklearn >= 1.10) ------------------------- #
+    try:
+        from sklearn.callback import FitCallback
+
+        class _MetricTracer(FitCallback):
+            """Records the full metric set at each lbfgs iteration."""
+            def __init__(self):
+                self.rows = []
+            def on_fit_task_begin(self, estimator, context, **kw):
+                pass
+            def on_fit_task_end(self, estimator, context, *, fitted_estimator=None,
+                                **kw):
+                clf = fitted_estimator if fitted_estimator is not None else estimator
+                # only the per-iteration subtasks carry a usable model
+                if not hasattr(clf, "coef_"):
+                    return
+                self.rows.append(score_clf(len(self.rows) + 1, clf))
+            def setup(self, estimator, context):
+                pass
+            def teardown(self, estimator, context):
+                pass
+
+        clf = clone(model)
+        tracer = _MetricTracer()
+        clf.set_callbacks(tracer)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            clf.fit(Xtr, ytr)
+        if tracer.rows:
+            # renumber sequentially in case the root 'fit' task also fired
+            for i, r in enumerate(tracer.rows, start=1):
+                r["iteration"] = i
+            return tracer.rows, clf
+        # callback produced nothing usable -> fall through to warm_start
+    except ImportError:
+        pass
+
+    # --- Fallback: warm_start trace (older sklearn) ----------------------- #
     history = []
     if getattr(model, "warm_start", False):
         clf = clone(model)
         clf.set_params(warm_start=True)
-        # Trace a fixed N_ITERS with NO early stopping, so every corpus spans the
-        # same iteration budget. warm_start makes each fit continue from the
-        # previous solution, so capping max_iter at `step` advances the solver
-        # one iteration further each call.
         for step in range(1, N_ITERS + 1):
             clf.set_params(max_iter=step)
-            with warnings.catch_warnings():        # silence not-converged spam
+            with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 clf.fit(Xtr, ytr)
-            history.append(scored(step, clf))
+            history.append(score_clf(step, clf))
         return history, clf
 
-    # Fallback: no warm-start support -> single fit, one logged point.
     clf = clone(model).fit(Xtr, ytr)
-    history.append(scored(1, clf))
+    history.append(score_clf(1, clf))
     return history, clf
 
 

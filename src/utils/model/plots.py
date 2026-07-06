@@ -14,8 +14,6 @@ analysis plots. Grid figures lay out rows = metrics/pairs, columns = corpora.
   - confusion_matrix.pdf     : confusion matrices, one per corpus.
   - calibration_curve.pdf    : reliability diagram, per corpus.
   - coefficients.pdf         : learned logistic weights, per corpus.
-  - feature_regressions.pdf  : each feature vs signed-log delta_cx with a trend
-                               line, rows = features, columns = corpora.
   - decision_boundaries.pdf  : 2D delta_cx = 0 boundaries over correlation-chosen
                                feature pairs (correlated / anti / uncorrelated),
                                rows = pairs, columns = corpora.
@@ -233,67 +231,6 @@ def plot_coefficients(coef_csv: Path, out_dir: Path) -> None:
     plt.close(fig)
 
 
-def plot_feature_regressions(reg_csv: Path, out_dir: Path) -> None:
-    """Grid of 2-axis panels: rows = features, columns = corpora (er, structured,
-    hybrid) side by side. Each panel is the feature (x) vs the signed cost gap
-    delta_cx (y, signed-log) with a fitted trend line, so you can compare how the
-    same property drives matching-favorability across the three corpora. Above
-    the dashed line (delta_cx > 0) matching wins. Rows ordered by |Spearman| on
-    the hybrid; each panel is annotated with its own corpus's rho.
-    """
-
-    set_ieee_style()
-    df = pd.read_csv(reg_csv)
-    corpora = _corpora_in(df)
-    feats = [c for c in df.columns if c not in ("corpus", "delta_cx")]
-
-    def slog(v):
-        return np.sign(v) * np.log10(np.abs(v) + 1)
-
-    # Row order: strongest monotone relationship on the hybrid (fallback: first).
-    ref = df[df.corpus == ("hybrid" if "hybrid" in corpora else corpora[0])]
-    order = sorted(feats,
-                   key=lambda f: -abs(pd.Series(ref[f]).corr(ref.delta_cx,
-                                                            method="spearman")))
-    nrow, ncol = len(order), len(corpora)
-    fig, axes = plt.subplots(nrow, ncol, figsize=(2.6 * ncol, 1.7 * nrow),
-                             squeeze=False)
-    for j, corpus in enumerate(corpora):
-        d = df[df.corpus == corpus].reset_index(drop=True)
-        dcx = d.delta_cx
-        y = slog(dcx.to_numpy(float))
-        col = CORPUS_COLOR[corpus]
-        for i, f in enumerate(order):
-            ax = axes[i][j]
-            x = d[f]
-            ax.scatter(x.to_numpy(float), y, s=3, alpha=0.15, color=col,
-                       edgecolors="none", rasterized=True)
-            # aligned indices now (both reset), so corr is valid.
-            rho = (x.corr(dcx, method="spearman")
-                   if x.nunique() > 1 else float("nan"))
-            try:                                     # linear LS trend
-                m, b = np.polyfit(x, y, 1)
-                xs = np.linspace(np.nanmin(x), np.nanmax(x), 100)
-                ax.plot(xs, m * xs + b, color="k", lw=1.1)
-            except (np.linalg.LinAlgError, ValueError, TypeError):
-                pass
-            ax.axhline(0, color="k", lw=0.4, ls="--")
-            ax.tick_params(labelsize=6)
-            rho_txt = f"{rho:+.2f}" if rho == rho else "n/a"
-            ax.set_title(rf"$\rho$={rho_txt}", fontsize=6)
-            if j == 0:
-                ax.set_ylabel(f, fontsize=7)
-            if i == 0:
-                ax.text(0.5, 1.35, CORPUS_LABEL[corpus], fontsize=9,
-                        ha="center", va="bottom", transform=ax.transAxes)
-    fig.suptitle("Feature vs cost gap per corpus: "
-                 r"above the dashed line ($\Delta_{CX}>0$) matching wins", y=1.0)
-    fig.tight_layout()
-    fig.savefig(out_dir / "feature_regressions.pdf", bbox_inches="tight",
-                pad_inches=0.3)
-    plt.close(fig)
-
-
 # Feature pairs to draw boundaries over, chosen from the correlation heatmap to
 # span the range of correlation structure. Each entry is
 # (feature_x, feature_y, label, logx): logx log-scales the x-axis where the
@@ -465,7 +402,7 @@ def plot_all(out_dir: Path) -> None:
     hist = out_dir / "training_history.csv"
     preds = out_dir / "test_predictions.csv"
     coef = out_dir / "coefficients.csv"
-    reg = out_dir / "feature_regressions.csv"
+    reg = out_dir / "feature_regressions.csv"   # feeds the decision-boundary plot
     if hist.exists():
         plot_training_curve(hist, out_dir)
     if preds.exists():
@@ -475,6 +412,5 @@ def plot_all(out_dir: Path) -> None:
     if coef.exists():
         plot_coefficients(coef, out_dir)
     if reg.exists():
-        plot_feature_regressions(reg, out_dir)
         plot_decision_boundaries(reg, out_dir)
     log.info("wrote model plots to %s", out_dir)
