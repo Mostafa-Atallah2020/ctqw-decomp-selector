@@ -217,13 +217,18 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-data/**
-!data/
-!data/raw/
-!data/features/
-!data/g6/
-!data/labels/
-!data/features/README.md
+# All dataset artifacts and results are generated (reproducible from the code +
+# a seed); nothing under the top-level data/ or results/ is tracked. Anchored
+# with a leading slash so backup/data/ (the tracked restore point) is NOT caught.
+/data/
+/results/
+
+# Scaffolding + one-off recovery helpers (not part of the reusable pipeline).
+PLAN.md
+scripts/recover_graphs.py
+scripts/reconstruct_recovered.py
+scripts/add_graph6_column.py
+run_n256.bat
 *.parquet
 *.g6
 *.g6.gz
@@ -235,7 +240,8 @@ data/**
 .vscode/
 .idea/
 
-# Local venvs
+# Local venvs (.venv, .venv312 for the sklearn-callback build, etc.)
 venv/
 venv*/
 .venv/
+.venv*/
