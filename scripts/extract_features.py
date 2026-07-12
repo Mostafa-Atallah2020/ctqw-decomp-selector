@@ -2,7 +2,7 @@
 """Extract graph-topology features from a g6 corpus (CLI entry point).
 
 Pick the corpus with --corpus; --in / --out override the derived paths.
-The extraction logic lives in src/utils/dataset/features_g6.py.
+The extraction logic lives in src/utils/dataset/features.py.
 
     python scripts/extract_features.py --corpus er                 # ER features
     python scripts/extract_features.py --corpus structured         # structured
@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from utils.dataset.features_g6 import (  # noqa: E402
+from utils.dataset.features import (  # noqa: E402
     Stats,
     extract_features,
     write_manifest,

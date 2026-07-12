@@ -128,19 +128,47 @@ def _graph_row(graph_id: str, graph) -> dict:
     }
 
 
+def _existing_feature_ids(graph_csv: Path) -> "set[str]":
+    """graph_ids already present in an existing feature CSV (empty if absent).
+
+    Lets extraction RESUME: rows already computed are kept and skipped, so a
+    re-run only featurizes graphs new to the g6 corpus instead of rebuilding
+    (and possibly shrinking) the whole file.
+    """
+    if not graph_csv.exists():
+        return set()
+    ids: set[str] = set()
+    with open(graph_csv, "r", encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            gid = row.get("graph_id")
+            if gid:
+                ids.add(gid)
+    return ids
+
+
 def extract_features(g6_path: Path, graph_csv: Path, stats: Stats,
                      limit: int | None = None) -> None:
     import networkx as nx
 
     graph_csv.parent.mkdir(parents=True, exist_ok=True)
     log.info("reading g6 corpus  <- %s", g6_path)
-    log.info("writing graph features -> %s", graph_csv)
 
-    seen_ids: set[str] = set()
+    # Resume: keep rows already computed, append only graphs new to the corpus.
+    seen_ids: set[str] = _existing_feature_ids(graph_csv)
+    is_new_file = len(seen_ids) == 0
+    if not is_new_file:
+        log.info("resuming: %d graphs already featurized in %s",
+                 len(seen_ids), graph_csv)
+    log.info("%s graph features -> %s",
+             "writing" if is_new_file else "appending", graph_csv)
+
     total = 0
-    with open(graph_csv, "w", encoding="utf-8", newline="") as gh:
+    mode = "w" if is_new_file else "a"
+    with open(graph_csv, mode, encoding="utf-8", newline="") as gh:
         gw = csv.DictWriter(gh, fieldnames=GRAPH_CSV_HEADER)
-        gw.writeheader()
+        if is_new_file:
+            gw.writeheader()
 
         for i, g6 in enumerate(iter_g6_lines(g6_path)):
             if limit is not None and i >= limit:
@@ -165,7 +193,7 @@ def extract_features(g6_path: Path, graph_csv: Path, stats: Stats,
             gw.writerow(_graph_row(graph_id, g))
             stats.parsed += 1
             total += 1
-            print(f"\r{total} graphs  (n={g.number_of_nodes()})",
+            print(f"\r{total} new graphs  (n={g.number_of_nodes()})",
                   end="", flush=True)
     print()  # finish the live line
 

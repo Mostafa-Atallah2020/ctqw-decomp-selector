@@ -130,7 +130,7 @@ def _automorphism_via_networkx(graph: nx.Graph) -> tuple[int, int]:
 
     Pure Python and slower than nauty, but portable. For small graphs
     (n <= 30) this runs in milliseconds; it can hang on large dense graphs,
-    so the g6 feature extractor disables it (see features_g6).
+    so the g6 feature extractor disables it (see dataset.features).
     """
     from networkx.algorithms import isomorphism
 

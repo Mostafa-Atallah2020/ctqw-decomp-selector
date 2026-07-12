@@ -61,7 +61,7 @@ class Stats:
 
 
 def graph6_hash(g6: str) -> str:
-    """Stable id for a graph6 string; matches features_g6._graph6_hash."""
+    """Stable id for a graph6 string; matches features._graph6_hash."""
     return hashlib.sha1(g6.encode("ascii")).hexdigest()[:16]
 
 

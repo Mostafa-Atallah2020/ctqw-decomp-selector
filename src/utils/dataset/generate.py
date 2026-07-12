@@ -67,6 +67,40 @@ def is_power_of_two(n: int) -> bool:
     return n > 0 and (n & (n - 1)) == 0
 
 
+def load_existing_g6(out_g6: Path) -> "tuple[set[str], int]":
+    """Read an existing g6 corpus and return (WL-hash set, line count).
+
+    Used to make generation RESUMABLE and IDEMPOTENT: a re-run seeds the dedup
+    set with the graphs already on disk, skips any it would regenerate, and
+    appends only new ones. If the file is absent, returns (empty set, 0).
+
+    Hashing every existing graph is cheap relative to labeling and lets us dedup
+    a newly generated graph against the whole corpus, not just the current run.
+    """
+    import networkx as nx
+
+    if not out_g6.exists():
+        return set(), 0
+    hashes: set[str] = set()
+    count = 0
+    with open(out_g6, "r", encoding="ascii") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            count += 1
+            try:
+                G = nx.from_graph6_bytes(line.encode("ascii"))
+                hashes.add(nx.weisfeiler_lehman_graph_hash(G))
+            except Exception:
+                # A malformed line we can't parse: keep the file's content but
+                # skip hashing it (it simply won't dedup against new graphs).
+                pass
+    log.info("resuming from existing corpus: %d graphs already in %s",
+             count, out_g6)
+    return hashes, count
+
+
 def write_manifest(stats: Stats, out_g6: Path, manifest_path: Path,
                    params: dict, source: str) -> None:
     payload = {
@@ -155,17 +189,23 @@ def generate_er_corpus(out_g6: Path, vertices: list[int],
                        base_seed: int, stats: Stats,
                        require_connected: bool = True,
                        limit: int | None = None) -> None:
-    """Sweep ER (n, p), write all graphs as one g6 line each to out_g6."""
+    """Sweep ER (n, p), appending new graphs (one g6 line each) to out_g6.
+
+    RESUMABLE: existing graphs in out_g6 are loaded and re-generated duplicates
+    are skipped, so a re-run only adds graphs (e.g. new vertex sizes) instead of
+    overwriting the corpus.
+    """
     import networkx as nx
 
     out_g6.parent.mkdir(parents=True, exist_ok=True)
     log.info("generating ER corpus -> %s", out_g6)
 
+    preexisting, written = load_existing_g6(out_g6)
+
     combos = [(n, p) for n in vertices for p in probabilities]
     n_cells = len(combos)
 
-    written = 0
-    with open(out_g6, "w", encoding="ascii", newline="\n") as out_fh:
+    with open(out_g6, "a", encoding="ascii", newline="\n") as out_fh:
         for cell_idx, (n_vertices, p) in enumerate(combos, start=1):
             # Per-(n,p) seed, so the same combo reproduces the same graphs
             # regardless of sweep order.
@@ -180,6 +220,13 @@ def generate_er_corpus(out_g6: Path, vertices: list[int],
                     print()
                     log.info("hit --limit %d, stopping", limit)
                     return
+                # Skip graphs already on disk (idempotent re-runs).
+                try:
+                    if nx.weisfeiler_lehman_graph_hash(g) in preexisting:
+                        stats.skipped_duplicate += 1
+                        continue
+                except Exception:
+                    pass
                 g6 = nx.to_graph6_bytes(g, header=False).decode("ascii").strip()
                 out_fh.write(g6 + "\n")
                 stats.record(n_vertices, p)
@@ -365,14 +412,20 @@ def generate_structured_graphs(n_vertices, n_graphs, seed=None,
 
 def generate_structured_corpus(out_g6: Path, vertices, n_graphs, base_seed,
                                stats: Stats, limit: int | None = None) -> None:
-    """Generate structured graphs for each vertex count, write to out_g6."""
+    """Generate structured graphs for each vertex count, appending to out_g6.
+
+    RESUMABLE: existing graphs in out_g6 are loaded and re-generated duplicates
+    are skipped, so a re-run only adds graphs (e.g. new vertex sizes) instead of
+    overwriting the corpus.
+    """
     import networkx as nx
 
     out_g6.parent.mkdir(parents=True, exist_ok=True)
     log.info("generating structured corpus -> %s", out_g6)
 
-    written = 0
-    with open(out_g6, "w", encoding="ascii", newline="\n") as fh:
+    preexisting, written = load_existing_g6(out_g6)
+
+    with open(out_g6, "a", encoding="ascii", newline="\n") as fh:
         for n_vertices in vertices:
             seed = base_seed + n_vertices if base_seed else None
             graphs = generate_structured_graphs(n_vertices, n_graphs, seed=seed,
@@ -383,6 +436,13 @@ def generate_structured_corpus(out_g6: Path, vertices, n_graphs, base_seed,
                     print()
                     log.info("hit --limit %d, stopping", limit)
                     return
+                # Skip graphs already on disk (idempotent re-runs).
+                try:
+                    if nx.weisfeiler_lehman_graph_hash(G) in preexisting:
+                        stats.skipped_duplicate += 1
+                        continue
+                except Exception:
+                    pass
                 g6 = nx.to_graph6_bytes(G, header=False).decode("ascii").strip()
                 fh.write(g6 + "\n")
                 stats.record(n_vertices, variant)
