@@ -18,12 +18,14 @@ Logic lives in src/utils/model/model.py and src/utils/model/plots.py.
 """
 
 import argparse
+import time
 import logging
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from utils.progress import fmt_duration
 from utils.model.model import DEFAULT_OUT, run  # noqa: E402
 from utils.analysis.corpus_analysis import DEFAULT_DATA  # noqa: E402
 
@@ -43,6 +45,7 @@ def _print_report(report: dict) -> None:
 
 
 def main(argv=None) -> int:
+    _t0 = time.perf_counter()
     p = argparse.ArgumentParser(
         description="Train the logistic-regression decomposition selector.")
     p.add_argument("--data", type=Path, default=DEFAULT_DATA,
@@ -58,6 +61,11 @@ def main(argv=None) -> int:
         format="%(asctime)s %(levelname)s %(message)s",
         level=logging.DEBUG if args.verbose else logging.INFO,
     )
+    # Matplotlib logs every glyph it subsets into a PDF at INFO level, burying our
+    # output under font internals. Only surface its warnings.
+    for noisy in ("matplotlib", "matplotlib.font_manager", "fontTools",
+                  "fontTools.subset", "PIL"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
     if not (args.data / "hybrid" / "labels" / "labels.csv").exists():
         log.error("missing hybrid corpus. Run `scripts/build_hybrid.py` first.")
@@ -77,6 +85,7 @@ def main(argv=None) -> int:
         plot_all(args.out)
 
     print(f"\nmetrics + history + plots -> {args.out}")
+    print(f"  done in {fmt_duration(time.perf_counter() - _t0)}")
     return 0
 
 

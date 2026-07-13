@@ -60,6 +60,12 @@ def main(argv=None) -> int:
         format="%(asctime)s %(levelname)s %(message)s",
         level=logging.DEBUG if args.verbose else logging.INFO,
     )
+    # Matplotlib logs every glyph it subsets into a PDF at INFO level, which buries
+    # our own output under hundreds of lines of font internals. Only surface its
+    # warnings.
+    for noisy in ("matplotlib", "matplotlib.font_manager", "fontTools",
+                  "fontTools.subset", "PIL"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
     for corpus in CORPUS_NAMES:
         if not (args.data / corpus / "labels" / "labels.csv").exists():
