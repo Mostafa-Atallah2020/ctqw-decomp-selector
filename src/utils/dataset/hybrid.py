@@ -44,6 +44,22 @@ def _load(data_dir: Path, corpus: str):
     return df
 
 
+def _load_unlabeled(data_dir: Path, corpus: str):
+    """Featurized graphs with NO label row (an anti-join against labels.csv).
+
+    These are the graphs the pipeline generated and featurized but could not
+    afford to label. Labeling cost grows as ~n^3.2, so it is ~0.5 h/graph at
+    n=512 and ~4.7 h/graph at n=1024. They carry every feature and a real
+    graph_id, so they stay traceable and could be labeled later.
+    """
+    import pandas as pd
+    feat = pd.read_csv(data_dir / corpus / "features" / "graph_features.csv")
+    lab = pd.read_csv(data_dir / corpus / "labels" / "labels.csv")
+    df = feat[~feat.graph_id.isin(set(lab.graph_id))].copy()
+    df["source_corpus"] = corpus
+    return df
+
+
 def build(data_dir: Path, out_dir: Path, seed: int = 0) -> dict:
     """Select a within-n class-balanced hybrid and write it to out_dir.
 
@@ -89,10 +105,17 @@ def build(data_dir: Path, out_dir: Path, seed: int = 0) -> dict:
                   "labeling_time"]
     label_cols = [c for c in label_cols if c in hybrid.columns]
 
+    unlabeled = pd.concat(
+        [_load_unlabeled(data_dir, c) for c in ("er", "structured")],
+        ignore_index=True)
+    features_out = pd.concat(
+        [hybrid[["source_corpus"] + feat_cols],
+         unlabeled[["source_corpus"] + feat_cols]],
+        ignore_index=True)
+
     (out_dir / "features").mkdir(parents=True, exist_ok=True)
     (out_dir / "labels").mkdir(parents=True, exist_ok=True)
-    hybrid[["source_corpus"] + feat_cols].to_csv(
-        out_dir / "features" / "graph_features.csv", index=False)
+    features_out.to_csv(out_dir / "features" / "graph_features.csv", index=False)
     hybrid[["source_corpus"] + label_cols].to_csv(
         out_dir / "labels" / "labels.csv", index=False)
 
@@ -102,6 +125,13 @@ def build(data_dir: Path, out_dir: Path, seed: int = 0) -> dict:
         "source": "hybrid_within_n_balanced",
         "seed": seed,
         "total": len(hybrid),
+        "unlabeled_carried": {
+            "total": int(len(unlabeled)),
+            "per_size": {int(k): int(v) for k, v in
+                         unlabeled.n_vertices.value_counts().sort_index().items()},
+            "per_corpus": {k: int(v) for k, v in
+                           unlabeled.source_corpus.value_counts().items()},
+        },
         "matching_wins": matching_total,
         "pauli_wins": pauli_total,
         "balance": "50/50 within each vertex count",
