@@ -189,12 +189,30 @@ def balance_report(df, corpus: str) -> dict:
 # plots
 # ---------------------------------------------------------------------------
 
+#: Set by run() so _savefig can report progress. 
+_PROGRESS = None
+
+
+def _edge_kw(marker: str) -> dict:
+    """`edgecolors="none"` iff the marker is a filled one.
+
+    An unfilled marker ('x', '+') is drawn entirely from its edge, so suppressing
+    the edge would erase it; matplotlib ignores the request and warns. Only pass
+    edgecolors where it means something.
+    """
+    from matplotlib.lines import Line2D
+    return {"edgecolors": "none"} if marker in Line2D.filled_markers else {}
+
+
 def _savefig(fig, out_dir: Path, name: str):
-    """Save as a vector PDF (IEEE style)."""
+    """Save as a vector PDF (IEEE style), reporting progress if run() set one up."""
     out_dir.mkdir(parents=True, exist_ok=True)
     pdf = out_dir / f"{name}.pdf"
     fig.savefig(pdf)
-    log.info("wrote %s", pdf)
+    if _PROGRESS is not None:
+        _PROGRESS.step(name)
+    else:
+        log.info("wrote %s", pdf)
 
 
 def plot_label_distribution(corpora, out_dir: Path):
@@ -214,7 +232,7 @@ def plot_label_distribution(corpora, out_dir: Path):
                 color=CORPUS_COLOR[name], label=CORPUS_LABEL[name], density=True)
     ax.axvline(0, color="k", lw=1, ls="--")
     ax.set_xlabel("signed log10(|delta_cx| + 1)   (>0: matching cheaper)")
-    ax.set_ylabel("density")
+    ax.set_ylabel("fraction of graphs (normalised)")
     ax.set_title("Cost-gap distribution per corpus")
     ax.legend()
     fig.tight_layout()
@@ -354,6 +372,7 @@ def plot_feature_distributions(corpora, out_dir: Path, top_feats: list):
         ax.set_title(f)
         ax.set_xlabel("")
         ax.set_ylabel("z-score")
+        ax.set_xticks(range(len(corpora)))
         ax.set_xticklabels([CORPUS_LABEL[c] for c in corpora], rotation=30)
         ax.tick_params(axis="x", labelsize=5)
     for ax in axes[len(feats):]:  # hide any empty panels
@@ -447,12 +466,13 @@ def plot_feature_vs_target(corpora, out_dir: Path, top_feats: list):
                              sharex="col", sharey="row", squeeze=False)
     for i, name in enumerate(names):
         df = corpora[name]
+        marker = CORPUS_MARKER[name]
         for j, f in enumerate(feats):
             ax = axes[i][j]
             xz = (df[f] - zmean[f]) / zstd[f]
             ax.scatter(xz, slog(df.delta_cx), s=4, alpha=0.35,
-                       marker=CORPUS_MARKER[name], color=CORPUS_COLOR[name],
-                       edgecolors="none", rasterized=True)
+                       marker=marker, color=CORPUS_COLOR[name],
+                       rasterized=True, **_edge_kw(marker))
             ax.axhline(0, color="k", lw=0.5, ls="--")
             ax.tick_params(labelsize=6)
             if i == 0:
@@ -504,8 +524,8 @@ def plot_pca(corpora, out_dir: Path):
     axes = axes if n > 1 else [axes]
     for ax, (name, Z) in zip(axes, projs.items()):
         ax.scatter(Z[:, 0], Z[:, 1], s=6, marker=CORPUS_MARKER[name],
-                   alpha=0.4, color=CORPUS_COLOR[name], edgecolors="none",
-                   rasterized=True)
+                   alpha=0.4, color=CORPUS_COLOR[name], rasterized=True,
+                   **_edge_kw(CORPUS_MARKER[name]))
         ax.set_title(CORPUS_LABEL[name])
         ax.set_xlabel(f"PC1 ({ev[0]*100:.0f}%)")
         ax.set_xlim(xlim)
@@ -520,10 +540,17 @@ def plot_pca(corpora, out_dir: Path):
 
 def run(data_dir: Path, plots_dir: Path) -> dict:
     """Load all corpora, write all plots, return the combined balance report."""
+    global _PROGRESS
+    from utils.progress import Progress
+
     set_ieee_style()
     corpora = {name: standardize(load_corpus(data_dir, name))
                for name in CORPUS_NAMES}
     log.info("loaded %s", {k: len(v) for k, v in corpora.items()})
+
+    # Eight plots, each rendered at 300 dpi. This is where the time goes.
+    _PROGRESS = Progress(total=8, unit="plot")
+    print(f"rendering {_PROGRESS.total} plots")
 
     # Feature importance decides which features get the detailed treatment, so
     # the distribution/scatter plots are data-driven, not hand-picked.
@@ -541,6 +568,9 @@ def run(data_dir: Path, plots_dir: Path) -> dict:
     plot_correlation_heatmaps(corpora, plots_dir, top)
     plot_feature_vs_target(corpora, plots_dir, top)
     pca_info = plot_pca(corpora, plots_dir)
+
+    _PROGRESS.done()
+    _PROGRESS = None
 
     report = {name: balance_report(df, name) for name, df in corpora.items()}
     report["feature_importance"] = imp["importance"]
