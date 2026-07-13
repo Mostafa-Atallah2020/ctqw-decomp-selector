@@ -232,9 +232,12 @@ def _train_history(model, Xtr, ytr, dcx_tr, Xva, yva, dcx_va):
         row.update(_epoch_scores("val", yva, pva, dcx_va, classes))
         return row
 
-    # --- Official callback path (sklearn >= 1.10) ------------------------- #
+    # Official callback path. sklearn.callback landed in sklearn 1.10; on anything
+    # older (this project pins >= 1.3 and runs on 1.7) the import fails and we take
+    # the warm_start fallback below. The type checker cannot see that this is
+    # deliberate, hence the ignore.
     try:
-        from sklearn.callback import FitCallback
+        from sklearn.callback import FitCallback  # type: ignore[import-not-found]
 
         class _MetricTracer(FitCallback):
             """Records the full metric set at each lbfgs iteration."""
@@ -269,9 +272,15 @@ def _train_history(model, Xtr, ytr, dcx_tr, Xva, yva, dcx_va):
     except ImportError:
         pass
 
-    # --- Fallback: warm_start trace (older sklearn) ----------------------- #
+    # Fallback: warm_start trace. This is NOT the same measurement as the callback
+    # path above: it refits from scratch at max_iter = 1, 2, 3, ... and scores each
+    # refit, which approximates the convergence curve rather than observing the
+    # solver's actual iterations. Say which path ran, so the curves in
+    # results/model/ are never ambiguous about how they were produced.
     history = []
     if getattr(model, "warm_start", False):
+        log.debug("sklearn.callback unavailable; tracing the training curve by "
+                  "warm_start refit (max_iter=1..%d)", N_ITERS)
         clf = clone(model)
         clf.set_params(warm_start=True)
         for step in range(1, N_ITERS + 1):
