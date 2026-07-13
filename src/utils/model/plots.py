@@ -4,12 +4,11 @@ Kept separate from training so the figures can be regenerated from the CSVs
 alone, without refitting. All figures use the IEEE style shared with the corpus
 analysis plots. Grid figures lay out rows = metrics/pairs, columns = corpora.
 
-  - training_curve.pdf       : per-iteration TRAIN vs VALIDATION progress, a grid
-                               of rows = metrics (loss, accuracy, precision,
-                               recall, specificity, NPV, F1, MCC, Cohen's kappa,
-                               savings), columns = corpora. ROC/PR-AUC are on
-                               their own figure. Final TEST numbers are in
-                               metrics.csv, not here.
+  - training_curve.pdf       : per-iteration TRAIN vs VALIDATION log-loss, one
+                               panel per corpus (side by side); loss is the
+                               only honest convergence curve (accuracy sits near
+                               its ceiling from iteration 1). All other metrics
+                               are final TEST values in metrics.csv, not curves.
   - roc_pr_curves.pdf        : ROC and Precision-Recall curves, per corpus.
   - confusion_matrix.pdf     : confusion matrices, one per corpus.
   - calibration_curve.pdf    : reliability diagram, per corpus.
@@ -60,42 +59,42 @@ CURVE_METRICS = [
 ]
 
 
+#: Only these two are shown as training CURVES (they tell the convergence /
 def plot_training_curve(hist_csv: Path, out_dir: Path) -> None:
-    """Train vs validation progress across epochs, laid out as a grid of
-    rows = metrics, columns = corpora (side by side). Solid = train, dashed =
-    validation; each column uses its corpus color."""
+    """Train vs validation LOG-LOSS across epochs, one panel per corpus, side by
+    side (accuracy and the rest sit near their ceiling from iteration 1, so loss
+    is the only honest convergence curve). Solid = train, dashed = validation;
+    each panel uses its corpus color and its own y-axis, scaled to that corpus's
+    loss range so the convergence shape is clear."""
     set_ieee_style()
     hist = pd.read_csv(hist_csv)
     corpora = [c for c in ["er", "structured", "hybrid"]
                if c in set(hist.corpus)]
-    metrics = [(k, lab) for k, lab in CURVE_METRICS
-               if f"train_{k}" in hist.columns]
 
-    nrow, ncol = len(metrics), len(corpora)
-    fig, axes = plt.subplots(nrow, ncol,
-                             figsize=(2.4 * ncol, 1.35 * nrow),
+    fig, axes = plt.subplots(1, len(corpora),
+                             figsize=(2.6 * len(corpora), 2.6),
                              squeeze=False, sharex=True)
     for j, corpus in enumerate(corpora):
         h = hist[hist.corpus == corpus]
         c = CORPUS_COLOR[corpus]
-        for i, (key, label) in enumerate(metrics):
-            ax = axes[i][j]
-            tr = pd.to_numeric(h[f"train_{key}"], errors="coerce")
-            va = pd.to_numeric(h[f"val_{key}"], errors="coerce")
-            ax.plot(h.iteration, tr, "-", color=c, lw=1.0)
-            ax.plot(h.iteration, va, "--", color=c, lw=1.0)
-            if i == 0:                             # corpus name atop each column
-                ax.set_title(CORPUS_LABEL[corpus])
-            if j == 0:                             # metric name on left column
-                ax.set_ylabel(label)
-            if i == nrow - 1:
-                ax.set_xlabel("iteration")
+        ax = axes[0][j]
+        tr = pd.to_numeric(h["train_loss"], errors="coerce")
+        va = pd.to_numeric(h["val_loss"], errors="coerce")
+        ax.plot(h.iteration, tr, "-", color=c, lw=1.4)
+        ax.plot(h.iteration, va, "--", color=c, lw=1.4)
+        # Both axes start at 0: honest baseline for loss, and iteration 0 origin.
+        ymax = float(pd.concat([tr, va]).max())
+        ax.set_xlim(0, float(h.iteration.max()))
+        ax.set_ylim(0, ymax * 1.08)
+        ax.set_title(CORPUS_LABEL[corpus])
+        ax.set_xlabel("iteration")
+        ax.set_ylabel("log-loss")
 
     handles = [Line2D([], [], color="0.3", lw=1.4, ls="-", label="train"),
                Line2D([], [], color="0.3", lw=1.4, ls="--", label="validation")]
     fig.legend(handles=handles, loc="lower center", ncol=2, frameon=False,
                bbox_to_anchor=(0.5, -0.03))
-    fig.suptitle("Logistic regression: training vs validation", y=1.0)
+    fig.suptitle("Logistic regression: training vs validation log-loss", y=1.0)
     fig.tight_layout()
     fig.savefig(out_dir / "training_curve.pdf", bbox_inches="tight", pad_inches=0.3)
     plt.close(fig)
@@ -257,7 +256,7 @@ def _boundary_panel(ax, X2, y, kx, ky, mdl, region_cmap, logx=False,
     `coef`, scaler `mean`/`scale` (per feature), `intercept`, and `median` (the
     full feature vector at its per-feature median). The boundary is this model's
     P(matching)=0.5 contour over the (kx, ky) feature plane, with the other 8
-    features held at their median -- a true projection of the deployed model, NOT
+    features held at their median: a true projection of the deployed model, NOT
     a refit. `logx` only sets the x-axis display scale (the model uses raw x).
     """
     if len(np.unique(y)) < 2:                     # single class (e.g. ER)
@@ -346,7 +345,7 @@ def plot_decision_boundaries(reg_csv: Path, out_dir: Path) -> None:
     Rows are the feature pairs in BOUNDARY_PAIRS (correlated / anti-correlated /
     uncorrelated, per the correlation heatmap); columns are the corpora. Each
     panel draws the actual per-corpus logistic model's P(matching) = 0.5 contour
-    over its two features, holding the other 8 at their median -- NOT a refit.
+    over its two features, holding the other 8 at their median. This is NOT a refit.
     The model is reconstructed from coefficients.csv (coef + scaler mean/scale).
     Points: green = +delta (matching wins), red = -delta (Pauli wins).
     """
