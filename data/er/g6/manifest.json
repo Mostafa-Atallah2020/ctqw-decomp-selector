@@ -1,0 +1,45 @@
+{
+  "source": "erdos_renyi_synthetic",
+  "params": {
+    "corpus": "er",
+    "vertices": [
+      256
+    ],
+    "probabilities": [
+      0.05,
+      0.1,
+      0.15,
+      0.2,
+      0.25,
+      0.3,
+      0.35,
+      0.4,
+      0.45,
+      0.5,
+      0.55,
+      0.6,
+      0.65,
+      0.7,
+      0.75,
+      0.8,
+      0.85,
+      0.9,
+      0.95
+    ],
+    "n_graphs_per_combo": 100,
+    "base_seed": 42,
+    "require_connected": true,
+    "limit": null
+  },
+  "g6_output": "F:\\ANL\\ML_ctqw\\ctqw-decomp-selector\\data\\er\\g6\\all.g6",
+  "g6_output_size_bytes": 13793334,
+  "stats": {
+    "generated": 0,
+    "skipped_empty": 0,
+    "skipped_disconnected": 0,
+    "skipped_duplicate": 1900,
+    "short_runs": {},
+    "size_histogram": {},
+    "cell_counts": {}
+  }
+}

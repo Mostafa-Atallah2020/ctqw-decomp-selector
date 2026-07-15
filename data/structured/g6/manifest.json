@@ -1,0 +1,25 @@
+{
+  "source": "structured_counting_path",
+  "params": {
+    "corpus": "structured",
+    "vertices": [
+      256
+    ],
+    "n_graphs_per_size": 1800,
+    "base_seed": 42,
+    "limit": null
+  },
+  "g6_output": "F:\\ANL\\ML_ctqw\\ctqw-decomp-selector\\data\\structured\\g6\\all.g6",
+  "g6_output_size_bytes": 9004450,
+  "stats": {
+    "generated": 0,
+    "skipped_empty": 0,
+    "skipped_disconnected": 0,
+    "skipped_duplicate": 25967,
+    "short_runs": {
+      "256": 1079
+    },
+    "size_histogram": {},
+    "cell_counts": {}
+  }
+}

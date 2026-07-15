@@ -1,0 +1,4 @@
+model,split,n,accuracy,precision,recall,specificity,npv,f1,mcc,cohen_kappa,roc_auc,pr_auc,log_loss,savings_captured,tn,fp,fn,tp
+logistic,er,2197,0.9982,0.0,0.0,1.0,0.9982,0.0,0.0,0.0,0.9211,0.0181,0.0111,0.0,2193,0,4,0
+logistic,structured,1767,0.9547,0.9899,0.95,0.9696,0.8607,0.9695,0.8844,0.8816,0.9838,0.9955,0.1292,0.9994,414,13,67,1273
+logistic,hybrid,2689,0.9821,0.973,0.9918,0.9725,0.9917,0.9823,0.9645,0.9643,0.999,0.9989,0.0458,0.9987,1307,37,11,1334

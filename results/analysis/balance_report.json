@@ -1,0 +1,203 @@
+{
+  "er": {
+    "corpus": "er",
+    "n_graphs": 10989,
+    "label_balance": {
+      "matching_wins": 20,
+      "pauli_wins": 10961,
+      "ties": 8,
+      "matching_win_frac": 0.0018,
+      "minority_frac": 0.0018,
+      "imbalance_ratio": 548.0,
+      "verdict": "severely imbalanced: the minority class is <5% of graphs; a model trained here alone cannot learn it"
+    },
+    "win_rate_by_n": {
+      "8": {
+        "count": 1682,
+        "matching_win_rate": 0.012,
+        "mean_delta_cx": -20.4
+      },
+      "16": {
+        "count": 1800,
+        "matching_win_rate": 0.0,
+        "mean_delta_cx": -321.8
+      },
+      "32": {
+        "count": 1807,
+        "matching_win_rate": 0.0,
+        "mean_delta_cx": -2472.1
+      },
+      "64": {
+        "count": 1900,
+        "matching_win_rate": 0.0,
+        "mean_delta_cx": -17477.8
+      },
+      "128": {
+        "count": 1900,
+        "matching_win_rate": 0.0,
+        "mean_delta_cx": -114821.6
+      },
+      "256": {
+        "count": 1900,
+        "matching_win_rate": 0.0,
+        "mean_delta_cx": -718148.7
+      }
+    },
+    "degenerate_features": {
+      "is_bipartite": 0.988,
+      "is_tree": 0.995,
+      "is_regular": 1.0
+    }
+  },
+  "structured": {
+    "corpus": "structured",
+    "n_graphs": 8901,
+    "label_balance": {
+      "matching_wins": 6701,
+      "pauli_wins": 2134,
+      "ties": 66,
+      "matching_win_frac": 0.7528,
+      "minority_frac": 0.2397,
+      "imbalance_ratio": 3.1,
+      "verdict": "reasonably balanced"
+    },
+    "win_rate_by_n": {
+      "8": {
+        "count": 807,
+        "matching_win_rate": 0.098,
+        "mean_delta_cx": -8.9
+      },
+      "16": {
+        "count": 1787,
+        "matching_win_rate": 0.184,
+        "mean_delta_cx": -14.7
+      },
+      "32": {
+        "count": 1769,
+        "matching_win_rate": 0.992,
+        "mean_delta_cx": 77.8
+      },
+      "64": {
+        "count": 1746,
+        "matching_win_rate": 1.0,
+        "mean_delta_cx": 304.8
+      },
+      "128": {
+        "count": 1713,
+        "matching_win_rate": 1.0,
+        "mean_delta_cx": 888.3
+      },
+      "256": {
+        "count": 1079,
+        "matching_win_rate": 1.0,
+        "mean_delta_cx": 2166.7
+      }
+    },
+    "degenerate_features": {
+      "min_degree": 0.942,
+      "is_tree": 0.999,
+      "is_regular": 1.0
+    }
+  },
+  "hybrid": {
+    "corpus": "hybrid",
+    "n_graphs": 13442,
+    "label_balance": {
+      "matching_wins": 6721,
+      "pauli_wins": 6721,
+      "ties": 0,
+      "matching_win_frac": 0.5,
+      "minority_frac": 0.5,
+      "imbalance_ratio": 1.0,
+      "verdict": "reasonably balanced"
+    },
+    "win_rate_by_n": {
+      "8": {
+        "count": 198,
+        "matching_win_rate": 0.5,
+        "mean_delta_cx": -7.6
+      },
+      "16": {
+        "count": 658,
+        "matching_win_rate": 0.5,
+        "mean_delta_cx": -85.6
+      },
+      "32": {
+        "count": 3510,
+        "matching_win_rate": 0.5,
+        "mean_delta_cx": -1185.4
+      },
+      "64": {
+        "count": 3492,
+        "matching_win_rate": 0.5,
+        "mean_delta_cx": -8612.5
+      },
+      "128": {
+        "count": 3426,
+        "matching_win_rate": 0.5,
+        "mean_delta_cx": -56800.5
+      },
+      "256": {
+        "count": 2158,
+        "matching_win_rate": 0.5,
+        "mean_delta_cx": -359787.5
+      }
+    },
+    "degenerate_features": {
+      "is_bipartite": 0.934,
+      "is_tree": 0.999,
+      "is_regular": 1.0
+    }
+  },
+  "feature_importance": {
+    "er": {
+      "edge_density": 0.010402092236065452,
+      "avg_degree": 0.020225237952758764,
+      "max_degree": 0.009376019966526648,
+      "min_degree": 0.009110219179086205,
+      "degree_variance": 0.00330722613125603,
+      "max_matching_size": 0.9178558682669327,
+      "spectral_gap": 0.009039677218653263,
+      "avg_clustering": 0.009610917468421742,
+      "triangle_count": 0.011052433441641711,
+      "diameter": 2.03081386575699e-05
+    },
+    "structured": {
+      "edge_density": 0.3850077963082876,
+      "avg_degree": 0.00551946536845186,
+      "max_degree": 0.0,
+      "min_degree": 2.0647403242617788e-05,
+      "degree_variance": 0.0,
+      "max_matching_size": 0.6069517355642611,
+      "spectral_gap": 0.002295134058028787,
+      "avg_clustering": 0.00020522129772825197,
+      "triangle_count": 0.0,
+      "diameter": 0.0
+    },
+    "hybrid": {
+      "edge_density": 0.004494041282777475,
+      "avg_degree": 0.02797651143290743,
+      "max_degree": 0.3646633894998627,
+      "min_degree": 0.016778201509814267,
+      "degree_variance": 0.49399262576246683,
+      "max_matching_size": 0.045506160126599,
+      "spectral_gap": 0.015327392117319516,
+      "avg_clustering": 0.004403137434053184,
+      "triangle_count": 0.026854828571220176,
+      "diameter": 3.7122629793635526e-06
+    }
+  },
+  "top_features": [
+    "max_matching_size",
+    "degree_variance",
+    "avg_degree",
+    "edge_density",
+    "max_degree",
+    "triangle_count"
+  ],
+  "pca": {
+    "pc1_var": 0.642,
+    "pc2_var": 0.207
+  },
+  "plots_dir": "F:\\ANL\\ML_ctqw\\ctqw-decomp-selector\\results\\analysis"
+}

@@ -1,0 +1,101 @@
+{
+  "source": "hybrid_within_n_balanced",
+  "seed": 0,
+  "total": 13442,
+  "unlabeled_carried": {
+    "total": 390,
+    "per_size": {
+      "512": 195,
+      "1024": 195
+    },
+    "per_corpus": {
+      "structured": 200,
+      "er": 190
+    }
+  },
+  "matching_wins": 6721,
+  "pauli_wins": 6721,
+  "balance": "50/50 within each vertex count",
+  "per_n": {
+    "8": {
+      "take_per_class": 99,
+      "total": 198,
+      "matching_avail": 99,
+      "pauli_avail": 2354,
+      "matching_from": {
+        "structured": 79,
+        "er": 20
+      },
+      "pauli_from": {
+        "er": 71,
+        "structured": 28
+      }
+    },
+    "16": {
+      "take_per_class": 329,
+      "total": 658,
+      "matching_avail": 329,
+      "pauli_avail": 3220,
+      "matching_from": {
+        "structured": 329
+      },
+      "pauli_from": {
+        "er": 177,
+        "structured": 152
+      }
+    },
+    "32": {
+      "take_per_class": 1755,
+      "total": 3510,
+      "matching_avail": 1755,
+      "pauli_avail": 1821,
+      "matching_from": {
+        "structured": 1755
+      },
+      "pauli_from": {
+        "er": 1741,
+        "structured": 14
+      }
+    },
+    "64": {
+      "take_per_class": 1746,
+      "total": 3492,
+      "matching_avail": 1746,
+      "pauli_avail": 1900,
+      "matching_from": {
+        "structured": 1746
+      },
+      "pauli_from": {
+        "er": 1746
+      }
+    },
+    "128": {
+      "take_per_class": 1713,
+      "total": 3426,
+      "matching_avail": 1713,
+      "pauli_avail": 1900,
+      "matching_from": {
+        "structured": 1713
+      },
+      "pauli_from": {
+        "er": 1713
+      }
+    },
+    "256": {
+      "take_per_class": 1079,
+      "total": 2158,
+      "matching_avail": 1079,
+      "pauli_avail": 1900,
+      "matching_from": {
+        "structured": 1079
+      },
+      "pauli_from": {
+        "er": 1079
+      }
+    }
+  },
+  "source_mix": {
+    "structured": 6895,
+    "er": 6547
+  }
+}
