@@ -2,7 +2,8 @@
 """Train the logistic-regression decomposition selector (CLI).
 
 Fits logistic regression per corpus (er, structured, hybrid) with a leakage-safe
-train/val/test split stratified by (size, class), and writes to results/model/:
+train/val/test split stratified by (size, class), and writes to
+results/logistic_model/:
 
     metrics.csv            held-out TEST metrics per corpus
     training_history.csv   per-iteration train/val metrics
@@ -11,10 +12,10 @@ train/val/test split stratified by (size, class), and writes to results/model/:
     *.pdf                  training curves, ROC/PR, confusion, calibration,
                            coefficients, feature-vs-delta, decision boundaries
 
-Logic lives in src/utils/model/model.py and src/utils/model/plots.py.
+Logic lives in src/utils/model/logistic.py and src/utils/model/plots.py.
 
-    python scripts/train_model.py
-    python scripts/train_model.py --data F:/data --out F:/out --no-plots
+    python scripts/train_logistic.py
+    python scripts/train_logistic.py --data F:/data --out F:/out --no-plots
 """
 
 import argparse
@@ -26,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from utils.progress import fmt_duration
-from utils.model.model import DEFAULT_OUT, run  # noqa: E402
+from utils.model.logistic import DEFAULT_OUT, run  # noqa: E402
 from utils.analysis.corpus_analysis import DEFAULT_DATA  # noqa: E402
 
 log = logging.getLogger("model")

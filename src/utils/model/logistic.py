@@ -17,7 +17,7 @@ available behind RUN_EXTRAPOLATION but disabled by default: n = 128 is the
 largest labeled size and its two classes are trivially separable, so it is a
 weak check. True extrapolation to bigger n is future work, see HOLDOUT_N.)
 
-Outputs (to results/model/):
+Outputs (to results/logistic_model/):
 
   - metrics.csv           : held-out TEST metrics per corpus (accuracy,
                             precision/recall/specificity/NPV, F1, MCC, Cohen's
@@ -36,7 +36,7 @@ CX SAVINGS CAPTURED is the project's north-star: of all the CX gates matching
 could save over Pauli on the test set, what fraction does the model's "use
 matching" recommendation actually claim?
 
-This module is the importable library; run it via scripts/train_model.py.
+This module is the importable library; run it via scripts/train_logistic.py.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ from utils.analysis.corpus_analysis import (
 log = logging.getLogger("model")
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_OUT = _REPO_ROOT / "results" / "model"
+DEFAULT_OUT = _REPO_ROOT / "results" / "logistic_model"
 
 RANDOM_STATE = 0
 HOLDOUT_N = 128          # size-extrapolation holdout target (see module docstring)
@@ -276,7 +276,7 @@ def _train_history(model, Xtr, ytr, dcx_tr, Xva, yva, dcx_va):
     # path above: it refits from scratch at max_iter = 1, 2, 3, ... and scores each
     # refit, which approximates the convergence curve rather than observing the
     # solver's actual iterations. Say which path ran, so the curves in
-    # results/model/ are never ambiguous about how they were produced.
+    # results/logistic_model/ are never ambiguous about how they were produced.
     history = []
     if getattr(model, "warm_start", False):
         log.debug("sklearn.callback unavailable; tracing the training curve by "

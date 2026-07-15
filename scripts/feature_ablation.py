@@ -12,7 +12,7 @@ how much the model degrades. A feature whose removal costs nothing was not
 carrying unique signal, however informative it looked on its own.
 
 Writes results/evaluation/ablation.csv: per dropped feature, the same twelve metrics
-reported in results/model/metrics.csv (mean and std across seeds), plus each one's
+reported in results/logistic_model/metrics.csv (mean and std across seeds), plus each one's
 drop relative to the full model. Rows are ranked by the MCC drop, but the savings
 column matters too: a feature can cost little accuracy and still cost real CX gates.
 """
@@ -83,7 +83,7 @@ def split(df: pd.DataFrame, seed: int):
 
 
 def metrics(y_true, y_pred, dcx, score) -> dict:
-    """The same twelve metrics reported in results/model/metrics.csv."""
+    """The same twelve metrics reported in results/logistic_model/metrics.csv."""
     y_true = np.asarray(y_true)
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
     both = len(np.unique(y_true)) > 1

@@ -102,7 +102,7 @@ def split(df: pd.DataFrame, seed: int):
 # scoring
 # ---------------------------------------------------------------------------
 def metrics(y_true, y_pred, dcx, score=None) -> dict:
-    """The same twelve metrics reported in results/model/metrics.csv, plus the raw
+    """The same twelve metrics reported in results/logistic_model/metrics.csv, plus the raw
     confusion counts. `score` (a probability) is needed for the AUCs and log-loss."""
     y_true = np.asarray(y_true)
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
@@ -205,15 +205,31 @@ def learned_models() -> dict:
 
 
 # ---------------------------------------------------------------------------
-def main() -> int:
+def main(argv=None) -> int:
+    import argparse
+
+    p = argparse.ArgumentParser(
+        description="Benchmark the twelve-model ladder on one or more corpora.")
+    p.add_argument("--corpus", nargs="+", default=CORPORA,
+                   help=f"corpora to evaluate (default: {' '.join(CORPORA)}). "
+                        "census8 is the exhaustive set of all 11,117 connected "
+                        "8-vertex graphs.")
+    args = p.parse_args(list(argv) if argv is not None else None)
+    corpora = args.corpus
+    # Default run writes model_comparison.csv; a custom --corpus set writes a
+    # suffixed file so it never clobbers the canonical three-corpus comparison.
+    is_default = corpora == CORPORA
+    out_name = ("model_comparison.csv" if is_default
+                else f"model_comparison_{'_'.join(corpora)}.csv")
+
     OUT.mkdir(parents=True, exist_ok=True)
     n_models = len(learned_models())
-    prog = Progress(total=len(CORPORA) * len(SEEDS) * n_models, unit="fit")
+    prog = Progress(total=len(corpora) * len(SEEDS) * n_models, unit="fit")
     print(f"fitting {prog.total} models "
-          f"({n_models} models x {len(CORPORA)} corpora x {len(SEEDS)} seeds)")
+          f"({n_models} models x {len(corpora)} corpora x {len(SEEDS)} seeds)")
 
     rows = []
-    for corpus in CORPORA:
+    for corpus in corpora:
         df = load(corpus)
         per_model: dict[str, list[dict]] = {}
 
@@ -242,31 +258,35 @@ def main() -> int:
     prog.done()
 
     ladder = pd.DataFrame(rows)
-    ladder.to_csv(OUT / "model_comparison.csv", index=False)
-    print(f"\nwrote {OUT / 'model_comparison.csv'}")
+    ladder.to_csv(OUT / out_name, index=False)
+    print(f"\nwrote {OUT / out_name}")
 
-    # per-seed metrics for the shipped model, for confidence intervals
-    df = load("hybrid")
-    seed_rows = []
-    for seed in SEEDS:
-        train, _val, test = split(df, seed)
-        row = score_model(LogisticRegression(max_iter=1000, random_state=0),
-                          train, test)
-        row["seed"] = seed
-        seed_rows.append(row)
-    seeds = pd.DataFrame(seed_rows)
-    seeds.to_csv(OUT / "seeds.csv", index=False)
-    print(f"wrote {OUT / 'seeds.csv'}")
+    # The shipped-model confidence-interval file is specific to the hybrid corpus, so
+    # only produce it on the default run.
+    if is_default:
+        df = load("hybrid")
+        seed_rows = []
+        for seed in SEEDS:
+            train, _val, test = split(df, seed)
+            row = score_model(LogisticRegression(max_iter=1000, random_state=0),
+                              train, test)
+            row["seed"] = seed
+            seed_rows.append(row)
+        seeds = pd.DataFrame(seed_rows)
+        seeds.to_csv(OUT / "seeds.csv", index=False)
+        print(f"wrote {OUT / 'seeds.csv'}")
+        print(f"\nshipped model across seeds: MCC {seeds.mcc.mean():.3f} "
+              f"+/- {seeds.mcc.std():.3f}")
 
-    hybrid = ladder[ladder.corpus == "hybrid"].sort_values("mcc_mean")
-    print(f"\nhybrid ladder (MCC, mean +/- std over {len(SEEDS)} seeds):")
-    for _, r in hybrid.iterrows():
-        marker = "  <- shipped" if r.model == "logistic" else ""
-        print(f"  {r.model:<17} {r.mcc_mean:.3f} +/- {r.mcc_std:.3f}"
-              f"   savings {r.savings_mean:7.3f}{marker}")
-
-    print(f"\nshipped model across seeds: MCC {seeds.mcc.mean():.3f} "
-          f"+/- {seeds.mcc.std():.3f}")
+    # Print the ladder for each corpus, sorted by MCC, with savings alongside so the
+    # "good MCC, negative savings" pattern is visible.
+    for corpus in corpora:
+        sub = ladder[ladder.corpus == corpus].sort_values("mcc_mean",
+                                                           ascending=False)
+        print(f"\n{corpus} ladder (MCC, mean +/- std over {len(SEEDS)} seeds):")
+        for _, r in sub.iterrows():
+            print(f"  {r.model:<17} MCC {r.mcc_mean:6.3f} +/- {r.mcc_std:.3f}"
+                  f"   savings {r.savings_mean:8.3f}")
     return 0
 
 

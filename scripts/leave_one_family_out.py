@@ -22,7 +22,7 @@ training set, and training on it would mean the held-out family is half of what 
 model just trained on.
 
 Writes results/evaluation/lofo.csv (one row per fold and seed, with the same twelve
-metrics reported in results/model/metrics.csv).
+metrics reported in results/logistic_model/metrics.csv).
 """
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def load(corpus: str) -> pd.DataFrame:
 
 
 def metrics(y_true, y_pred, dcx, score) -> dict:
-    """The same twelve metrics reported in results/model/metrics.csv.
+    """The same twelve metrics reported in results/logistic_model/metrics.csv.
 
     Accuracy is not the headline by accident: on ER a constant predictor already
     scores 99.8%, so MCC and CX-savings-captured are what we read.
@@ -160,7 +160,7 @@ def main() -> int:
         print(f"  {train_on + ' -> ' + test_on:<26}{r.mcc:>8.3f}{r.recall:>9.3f}"
               f"{r.savings:>12.3f}")
 
-    print(f"\n  Compare with MCC ~0.96 on the hybrid (results/model/metrics.csv), "
+    print(f"\n  Compare with MCC ~0.96 on the hybrid (results/logistic_model/metrics.csv), "
           "where the\n  model may use the family fingerprint. Falling to "
           f"{summary.mcc.min():.3f} means it does not\n  transfer: the features that "
           "separate the classes within a family partly encode\n  WHICH family the "

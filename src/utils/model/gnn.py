@@ -22,7 +22,7 @@ that graph's full cost gap. A model attaining MCC 0.1 with negative CX savings i
 therefore inferior to the constant-Pauli baseline, which attains MCC 0 and zero
 savings.
 
-Command-line interface: scripts/benchmark_gnn.py
+Command-line interface: scripts/train_gnn.py
 """
 from __future__ import annotations
 

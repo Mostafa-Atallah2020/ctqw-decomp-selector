@@ -17,7 +17,7 @@ analysis plots. Grid figures lay out rows = metrics/pairs, columns = corpora.
                                feature pairs (correlated / anti / uncorrelated),
                                rows = pairs, columns = corpora.
 
-Run via scripts/train_model.py (or call plot_all on an output dir directly).
+Run via scripts/train_logistic.py (or call plot_all on an output dir directly).
 """
 
 from __future__ import annotations
