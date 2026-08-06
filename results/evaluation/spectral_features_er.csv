@@ -1,0 +1,37 @@
+feature_set,model,mcc,savings
+baseline (classical),logistic,0.0,0.0
+baseline (classical),naive_bayes,0.09870209527848926,-1052.7713131313133
+baseline (classical),dtree_d1,0.0,0.0
+baseline (classical),dtree_d2,0.0,0.0
+baseline (classical),dtree_d3,-0.00018227390906441762,-0.15
+baseline (classical),svm_rbf,0.0,0.0
+baseline (classical),knn,0.0,0.0
+baseline (classical),mlp,0.0,0.0
+baseline (classical),rand_forest,-0.0005468217271932528,-0.5348484848484849
+baseline (classical),grad_boost,0.018131529466472278,-23536.41161616162
+baseline (classical),xgboost,-0.0007290956362576705,-0.8237373737373737
+baseline (classical),lightgbm,-0.0006803993526749218,-0.9893939393939395
++spectrum,logistic,0.0,0.0
++spectrum,naive_bayes,0.08903275936793618,-2488.7576767676774
++spectrum,dtree_d1,0.0,0.0
++spectrum,dtree_d2,-0.0002578329460838144,-1.1
++spectrum,dtree_d3,-0.0005156658921676288,-1.3444444444444446
++spectrum,svm_rbf,0.0,0.0
++spectrum,knn,0.0,0.0
++spectrum,mlp,0.0,0.0
++spectrum,rand_forest,-0.0005468217271932528,-0.5348484848484849
++spectrum,grad_boost,-0.0014972989311820685,-4.570505050505051
++spectrum,xgboost,-0.0005468217271932528,-0.5348484848484849
++spectrum,lightgbm,-0.0006223807642126496,-0.6984848484848485
+spectrum only,logistic,0.0,0.0
+spectrum only,naive_bayes,0.0789385026667252,-8651.135151515151
+spectrum only,dtree_d1,0.0,0.0
+spectrum only,dtree_d2,-0.0002578329460838144,-1.1
+spectrum only,dtree_d3,-0.000440106855148232,-1.1666666666666665
+spectrum only,svm_rbf,0.0,0.0
+spectrum only,knn,0.0,0.0
+spectrum only,mlp,0.0,0.0
+spectrum only,rand_forest,-0.0005468217271932528,-0.5348484848484849
+spectrum only,grad_boost,-0.02421480919995443,-13074180.53989899
+spectrum only,xgboost,-0.0005468217271932528,-0.5348484848484849
+spectrum only,lightgbm,-0.0006803993526749218,-0.8257575757575758
