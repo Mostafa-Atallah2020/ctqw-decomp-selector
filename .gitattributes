@@ -1,0 +1,17 @@
+# Preserve the exact bytes of data artifacts. These are generated datasets whose
+# line endings must not be rewritten by autocrlf on Windows checkout.
+*.g6        -text
+*.g6.gz     -text binary
+*.s6        -text
+*.sparse6   -text
+data/**/*.csv    -text
+results/**/*.csv -text
+
+# Binary outputs: never touch.
+*.pdf   binary
+*.png   binary
+*.parquet binary
+
+# Normalize source to LF in the repo (checked out per-platform).
+*.py    text eol=lf
+*.md    text eol=lf

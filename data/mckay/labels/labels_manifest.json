@@ -1,0 +1,36 @@
+{
+  "source": "erdos_renyi_synthetic",
+  "g6_input": "data\\census8\\g6\\all.g6",
+  "labels_csv": "data\\census8\\labels\\labels.csv",
+  "labels_csv_header": [
+    "graph_id",
+    "n_vertices",
+    "cx_matching",
+    "cx_pauli",
+    "depth_matching",
+    "depth_pauli",
+    "delta_cx",
+    "delta_depth",
+    "labeling_time"
+  ],
+  "params": {
+    "n_steps": 1,
+    "delta_t": 0.1,
+    "matching_heuristic": "compression_aware",
+    "matching_n_trials": 30,
+    "matching_seed": 99,
+    "transpiler_seed": 0,
+    "optimization_level": 3,
+    "basis_gates": [
+      "cx",
+      "u3"
+    ]
+  },
+  "stats": {
+    "labeled": 11117,
+    "resumed": 0,
+    "failed": 0,
+    "wall_seconds": 754.4,
+    "failures": {}
+  }
+}
