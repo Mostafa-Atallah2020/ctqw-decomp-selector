@@ -2,7 +2,7 @@
   "source": "erdos_renyi_synthetic",
   "g6_input": "F:\\ANL\\ML_ctqw\\ctqw-decomp-selector\\data\\er\\g6\\all.g6",
   "graph_csv": "F:\\ANL\\ML_ctqw\\ctqw-decomp-selector\\data\\er\\features\\graph_features.csv",
-  "graph_csv_size_bytes": 952546,
+  "graph_csv_size_bytes": 1809156,
   "graph_csv_header": [
     "graph_id",
     "n_vertices",
@@ -21,9 +21,9 @@
     "max_matching_size"
   ],
   "stats": {
-    "parsed": 190,
+    "parsed": 0,
     "skipped_parse_error": 0,
     "skipped_disconnected": 0,
-    "duplicate_graph": 10986
+    "duplicate_graph": 5
   }
 }
