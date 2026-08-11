@@ -1,18 +1,10 @@
 """Graph properties utilities for CTQW analysis.
 
-A standalone reimplementation inspired by the graph-property helpers in the
-ctqw-matching-decomp repo (https://github.com/Mostafa-Atallah2020/ctqw-matching-decomp). 
-All values are computed here directly via NetworkX.
-It differs from that reference in two ways:
-
-- Exact automorphism group size and orbit count (NetworkX VF2), replacing the
-  reference's rough heuristic estimator.
-- Extra features: min_degree, degree_variance, is_regular, is_tree,
-  cycle_count, triangle_count, spectral_gap, and the matching-decomposition
-  proxies max_matching_size and chromatic_index_lower_bound.
-
-The two enumeration-based features (automorphism, clique) can hang on large
-dense graphs and are gated by the with_automorphism / with_clique flags.
+Standalone NetworkX reimplementation of the ctqw-matching-decomp graph-property
+helpers, with exact VF2 automorphism group size/orbit count and extra features
+(degree stats, cycle/triangle counts, spectral gap, matching-decomp proxies).
+The enumeration-based features (automorphism, clique) can hang on large dense
+graphs and are gated by the with_automorphism / with_clique flags.
 """
 
 from __future__ import annotations
@@ -30,17 +22,13 @@ import numpy as np
 def calculate_graph_properties(graph: nx.Graph,
                                with_automorphism: bool = True,
                                with_clique: bool = True) -> Dict:
-    """Calculate graph features for one graph. Assumes graph is connected.
+    """Calculate graph features for one connected graph. Returns a dict with
+    stable keys (int/float/bool values).
 
-    Returns a dict with stable keys; values are int / float / bool.
-
-    Two features rely on enumerations that are exponential in the worst case
-    and can hang on large dense graphs:
-      - with_automorphism=False omits automorphism_group_size and orbit_count
-        (VF2 self-isomorphism enumeration).
-      - with_clique=False omits clique_number (maximal-clique enumeration).
-    Callers working with large graphs (e.g. the synthetic n up to 128 corpus)
-    should disable these; they stay on by default for small graphs.
+    Two features use worst-case-exponential enumerations that can hang on large
+    dense graphs: with_automorphism=False omits automorphism_group_size and
+    orbit_count. with_clique=False omits clique_number. Disable both for large
+    graphs, on by default for small ones.
     """
     n = graph.number_of_nodes()
     m = graph.number_of_edges()
@@ -51,7 +39,7 @@ def calculate_graph_properties(graph: nx.Graph,
     props["edge_density"] = nx.density(graph)
     props["is_bipartite"] = nx.is_bipartite(graph)
 
-    # diameter (None only if disconnected; we expect connected input)
+    # diameter (None if disconnected, connected input expected)
     props["diameter"] = nx.diameter(graph) if nx.is_connected(graph) else None
 
     # degrees
@@ -64,13 +52,12 @@ def calculate_graph_properties(graph: nx.Graph,
 
     # connectivity / cycles
     props["is_tree"] = (m == n - 1) and nx.is_connected(graph)
-    # for connected graphs, cycle space dimension = m - n + 1
+    # cycle space dimension = m - n + 1 for connected graphs
     props["cycle_count"] = m - n + 1 if nx.is_connected(graph) else None
     props["triangle_count"] = sum(nx.triangles(graph).values()) // 3
 
-    # clique number (max clique size); for organics typically 2 or 3.
-    # Maximal-clique enumeration is exponential on large dense graphs, so it is
-    # optional (see with_clique).
+    # clique number: maximal-clique enumeration is exponential on dense graphs
+    # (see with_clique).
     if with_clique:
         try:
             props["clique_number"] = max(len(c) for c in nx.find_cliques(graph))
@@ -80,19 +67,17 @@ def calculate_graph_properties(graph: nx.Graph,
     # clustering coefficient
     props["avg_clustering"] = nx.average_clustering(graph)
 
-    # spectral gap = lambda_2 - lambda_1 of Laplacian (algebraic connectivity)
+    # spectral gap = algebraic connectivity (lambda_2 of Laplacian)
     props["spectral_gap"] = _laplacian_spectral_gap(graph)
 
     # matching-decomp proxies
     matching = nx.max_weight_matching(graph, maxcardinality=True)
     props["max_matching_size"] = len(matching)
-    # Vizing's lower bound for chromatic index: max_degree.
-    # The chromatic index of a graph is max_degree or max_degree + 1.
-    # max_degree is also a lower bound on the number of matchings needed
-    # to decompose the edge set.
+    # Vizing: chromatic index is max_degree or max_degree+1, so max_degree lower-
+    # bounds the matchings needed to decompose the edge set.
     props["chromatic_index_lower_bound"] = props["max_degree"]
 
-    # exact automorphism group size + orbit count via networkx
+    # exact automorphism group size + orbit count
     if with_automorphism:
         group_size, orbit_count = _automorphism_via_networkx(graph)
         props["automorphism_group_size"] = group_size
@@ -106,31 +91,24 @@ def calculate_graph_properties(graph: nx.Graph,
 # ---------------------------------------------------------------------------
 
 def _laplacian_spectral_gap(graph: nx.Graph) -> float:
-    """Algebraic connectivity = second-smallest Laplacian eigenvalue.
-
-    For a connected graph, lambda_1 = 0 and lambda_2 > 0; the gap lambda_2 - 0
-    is the algebraic connectivity. For disconnected graphs returns 0.
-    """
+    """Algebraic connectivity = second-smallest Laplacian eigenvalue (0 for
+    disconnected or n < 2)."""
     n = graph.number_of_nodes()
     if n < 2:
         return 0.0
     L = nx.laplacian_matrix(graph).toarray().astype(float)
     eigvals = np.linalg.eigvalsh(L)
-    # eigvalsh returns sorted ascending; lambda_1 is ~0 for connected
+    # eigvalsh sorts ascending, lambda_1 ~ 0 for connected
     return float(eigvals[1])
 
 
 def _automorphism_via_networkx(graph: nx.Graph) -> tuple[int, int]:
-    """Return (|Aut(G)|, orbit_count) using networkx's VF2 isomorphism engine.
+    """Return (|Aut(G)|, orbit_count) via networkx's VF2 engine.
 
-    Approach:
-      - |Aut(G)| = number of self-isomorphisms, enumerated by GraphMatcher.
-      - Orbits = connected components in the union-find over the (i, sigma(i))
-        relation across all automorphisms.
-
-    Pure Python and slower than nauty, but portable. For small graphs
-    (n <= 30) this runs in milliseconds; it can hang on large dense graphs,
-    so the g6 feature extractor disables it (see dataset.features).
+    |Aut(G)| = self-isomorphism count from GraphMatcher. Orbits = union-find
+    components over the (i, sigma(i)) relation across all automorphisms. Pure
+    Python and portable, can hang on large dense graphs (the g6 extractor
+    disables it, see dataset.features).
     """
     from networkx.algorithms import isomorphism
 
@@ -163,7 +141,7 @@ def _automorphism_via_networkx(graph: nx.Graph) -> tuple[int, int]:
             union(src, dst)
 
     if count == 0:
-        # Should never happen (identity is always an automorphism), but be safe.
+        # Unreachable (identity is always an automorphism), safety fallback.
         return 1, n
 
     orbits = {find(v) for v in graph.nodes()}

@@ -1,4 +1,4 @@
-"""Compute ground-truth decomposition costs (labels) for a g6 corpus.
+"""Compute ground-truth decomposition costs (labels) for a g6 dataset.
 
 For each graph in data/g6/all.g6, build the matching and Pauli CTQW circuits
 with ctqw-matching-decomp, transpile each to the ["cx", "u3"] basis, and record
@@ -9,7 +9,7 @@ the CX count and depth of both. The regression targets follow:
 
 Positive delta means matching is the cheaper decomposition.
 
-This module is the importable library; run it via scripts/label.py.
+This module is the importable library. Run it via scripts/label.py.
 """
 
 from __future__ import annotations
@@ -21,17 +21,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
 
-# corpus in data/g6/, labels in data/labels/.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+# dataset in data/g6/, labels in data/labels/.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_G6 = _REPO_ROOT / "data" / "er" / "g6" / "all.g6"
 DEFAULT_OUT = _REPO_ROOT / "data" / "er" / "labels"
 
-# Fixed labeling parameters (recorded in the manifest; see determinism contract).
+# Fixed labeling parameters (recorded in the manifest, see determinism contract).
 N_STEPS = 1
 DELTA_T = 0.1
 MATCHING_SEED = 99
 MATCHING_N_TRIALS = 30
-MATCHING_HEURISTIC = "compression_aware"  # XOR-mask grouping; fewer CX than greedy
+MATCHING_HEURISTIC = "compression_aware"  # XOR-mask grouping, fewer CX than greedy
 TRANSPILER_SEED = 0
 OPT_LEVEL = 3
 BASIS_GATES = ["cx", "u3"]
@@ -61,7 +61,7 @@ class Stats:
 
 
 def graph6_hash(g6: str) -> str:
-    """Stable id for a graph6 string; matches features._graph6_hash."""
+    """Stable id for a graph6 string. Matches features._graph6_hash."""
     return hashlib.sha1(g6.encode("ascii")).hexdigest()[:16]
 
 
@@ -77,8 +77,8 @@ def _g6_n_vertices(g6: str) -> int:
     """Vertex count from a graph6 string, without building the graph.
 
     graph6 encodes n in the first byte(s): for n < 63 it is a single byte
-    ord(c) - 63. Larger n uses a multi-byte header (prefix '~'); fall back to a
-    NetworkX parse there. Our corpus is powers of two up to 1024, so both paths
+    ord(c) - 63. Larger n uses a multi-byte header (prefix '~'). Fall back to a
+    NetworkX parse there. Our dataset is powers of two up to 1024, so both paths
     occur (n <= 32 single-byte, n >= 64 multi-byte via the ~ header).
     """
     c = ord(g6[0])
@@ -91,7 +91,7 @@ def _g6_n_vertices(g6: str) -> int:
 def iter_g6_by_vertices(g6_path: Path) -> Iterator[str]:
     """Yield g6 lines ordered by ascending vertex count (ties keep file order).
 
-    Parsing every line up front is cheap; it is labeling that is expensive. This
+    Parsing every line up front is cheap. It is labeling that is expensive. This
     lets the labeler do the many cheap small graphs first and the few costly
     large ones last, so an interruption loses the least work.
     """
@@ -117,7 +117,7 @@ def label_one(g6: str) -> dict:
     from ctqw_matching_decomp.core import (
         MultiEdgeGraph, MatchingDecomposition, PauliDecomposition,
     )
-    from ctqw_matching_decomp.utils.graph.g6_utils import g6_to_edge_set
+    from ctqw_matching_decomp.graph.g6_utils import g6_to_edge_set
 
     edges = g6_to_edge_set(g6)
     if not edges:
@@ -169,7 +169,7 @@ def _fmt_duration(seconds: float) -> str:
     return f"{h}h {m:02d}m {s:02d}s"
 
 
-def label_corpus(g6_path: Path, labels_csv: Path, stats: Stats,
+def label_dataset(g6_path: Path, labels_csv: Path, stats: Stats,
                  limit: int | None = None) -> None:
     """Label every graph in g6_path, appending to labels_csv. Resumable.
 
@@ -197,7 +197,7 @@ def label_corpus(g6_path: Path, labels_csv: Path, stats: Stats,
         remaining_by_n[n] = remaining_by_n.get(n, 0) + 1
 
     total_new = len(ordered)
-    log.info("labeling %s -> %s (%d done, %d to do; sizes %s)",
+    log.info("labeling %s -> %s (%d done, %d to do, sizes %s)",
              g6_path, labels_csv, len(done), total_new,
              dict(sorted(remaining_by_n.items())))
 

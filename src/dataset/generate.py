@@ -1,25 +1,19 @@
-"""Generate synthetic g6 corpora for CTQW cost labeling.
+"""Generate synthetic g6 datasets for CTQW cost labeling.
 
-Two graph families, kept as separate corpora:
+Two graph families, kept as separate datasets:
 
-- Erdos-Renyi G(n, p) (generate_er_corpus): random graphs swept over a density
-  grid. Their random edge Hamming distributions leave the matching
-  decomposition little to compress, so Pauli usually wins. Adapted from
-  https://github.com/Mostafa-Atallah2020/ctqw-matching-decomp
-  (analysis/generate_erdos_renyi_graphs.py).
-
-- Structured counting-path (generate_structured_corpus): counting paths and
+- Erdos-Renyi G(n, p) (generate_er_dataset): random graphs over a density grid.
+  Their random edge Hamming distributions leave matching little to compress, so
+  Pauli usually wins.
+- Structured counting-path (generate_structured_dataset): counting paths and
   variants (XOR-permuted, extra-edges, segment-reversed, perturbed) whose mixed
-  Hamming structure (H1 ~ 50%, H2 ~ 25%, ...) the matching decomposition
-  exploits, so matching usually wins. Builders ported from the same repo's
-  analysis/generate_counting_connected_graphs.py.
+  Hamming structure matching exploits, so matching usually wins.
 
-Both write one g6 line per graph and a manifest, dedup by Weisfeiler-Lehman
+Both write one g6 line per graph plus a manifest, dedup by Weisfeiler-Lehman
 hash, keep only connected graphs, and require power-of-two vertex counts (each
-vertex is a bitstring over log2(n) qubits for the CTQW Hamiltonian).
+vertex is a bitstring over log2(n) qubits).
 
-This module is the importable library; run it via
-`scripts/generate_graphs.py --corpus er|structured`.
+Importable library. Run it via `scripts/generate_graphs.py --dataset er|structured`.
 """
 
 from __future__ import annotations
@@ -30,7 +24,7 @@ import random
 from dataclasses import dataclass, field
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ER_OUT = _REPO_ROOT / "data" / "er" / "g6"
 DEFAULT_STRUCTURED_OUT = _REPO_ROOT / "data" / "structured" / "g6"
 
@@ -68,14 +62,10 @@ def is_power_of_two(n: int) -> bool:
 
 
 def load_existing_g6(out_g6: Path) -> "tuple[set[str], int]":
-    """Read an existing g6 corpus and return (WL-hash set, line count).
+    """Read an existing g6 dataset and return (WL-hash set, line count).
 
-    Used to make generation RESUMABLE and IDEMPOTENT: a re-run seeds the dedup
-    set with the graphs already on disk, skips any it would regenerate, and
-    appends only new ones. If the file is absent, returns (empty set, 0).
-
-    Hashing every existing graph is cheap relative to labeling and lets us dedup
-    a newly generated graph against the whole corpus, not just the current run.
+    Makes generation RESUMABLE and IDEMPOTENT: a re-run seeds the dedup set with
+    graphs already on disk and appends only new ones. Absent file -> (set(), 0).
     """
     import networkx as nx
 
@@ -93,10 +83,9 @@ def load_existing_g6(out_g6: Path) -> "tuple[set[str], int]":
                 G = nx.from_graph6_bytes(line.encode("ascii"))
                 hashes.add(nx.weisfeiler_lehman_graph_hash(G))
             except Exception:
-                # A malformed line we can't parse: keep the file's content but
-                # skip hashing it (it simply won't dedup against new graphs).
+                # Unparseable line: keep it in the file but don't hash (won't dedup).
                 pass
-    log.info("resuming from existing corpus: %d graphs already in %s",
+    log.info("resuming from existing dataset: %d graphs already in %s",
              count, out_g6)
     return hashes, count
 
@@ -126,10 +115,9 @@ def generate_erdos_renyi_graphs(n_vertices, n_graphs, p, seed=None,
                                 stats: "Stats | None" = None):
     """Generate unique Erdős-Rényi random graphs G(n, p).
 
-    Each edge is included independently with probability p; disconnected graphs
-    are rejected when require_connected is True; isomorphic duplicates are
-    rejected via the Weisfeiler-Lehman graph hash; empty graphs are skipped.
-    Returns a list of NetworkX graphs (<= n_graphs).
+    Each edge included independently with probability p. Rejects disconnected
+    (when require_connected), WL-hash duplicates, and empty graphs. Returns a
+    list of NetworkX graphs (<= n_graphs).
     """
     import networkx as nx
     import numpy as np
@@ -148,15 +136,12 @@ def generate_erdos_renyi_graphs(n_vertices, n_graphs, p, seed=None,
 
         G = nx.erdos_renyi_graph(n_vertices, p, seed=random.randint(0, 2**31))
 
-        # Skip empty graphs.
         if G.number_of_edges() == 0:
             if stats is not None:
                 stats.skipped_empty += 1
             continue
 
-        # Reject disconnected graphs. At the low-p end on large n this is rare
-        # since we sit above the connectivity threshold ~ln(n)/n; at high p
-        # essentially every graph is connected.
+        # Reject disconnected graphs (rare: we sit above the ~ln(n)/n threshold).
         if require_connected and not nx.is_connected(G):
             if stats is not None:
                 stats.skipped_disconnected += 1
@@ -184,21 +169,20 @@ def generate_erdos_renyi_graphs(n_vertices, n_graphs, p, seed=None,
     return graphs[:n_graphs]
 
 
-def generate_er_corpus(out_g6: Path, vertices: list[int],
+def generate_er_dataset(out_g6: Path, vertices: list[int],
                        probabilities: list[float], n_graphs: int,
                        base_seed: int, stats: Stats,
                        require_connected: bool = True,
                        limit: int | None = None) -> None:
     """Sweep ER (n, p), appending new graphs (one g6 line each) to out_g6.
 
-    RESUMABLE: existing graphs in out_g6 are loaded and re-generated duplicates
-    are skipped, so a re-run only adds graphs (e.g. new vertex sizes) instead of
-    overwriting the corpus.
+    RESUMABLE: existing graphs are loaded and regenerated duplicates skipped, so
+    a re-run only adds graphs instead of overwriting the dataset.
     """
     import networkx as nx
 
     out_g6.parent.mkdir(parents=True, exist_ok=True)
-    log.info("generating ER corpus -> %s", out_g6)
+    log.info("generating ER dataset -> %s", out_g6)
 
     preexisting, written = load_existing_g6(out_g6)
 
@@ -207,8 +191,7 @@ def generate_er_corpus(out_g6: Path, vertices: list[int],
 
     with open(out_g6, "a", encoding="ascii", newline="\n") as out_fh:
         for cell_idx, (n_vertices, p) in enumerate(combos, start=1):
-            # Per-(n,p) seed, so the same combo reproduces the same graphs
-            # regardless of sweep order.
+            # Per-(n,p) seed: same combo reproduces the same graphs regardless of order.
             seed = base_seed + int(p * 1000) + n_vertices if base_seed else None
             graphs = generate_erdos_renyi_graphs(
                 n_vertices, n_graphs, p, seed=seed,
@@ -243,10 +226,8 @@ def generate_er_corpus(out_g6: Path, vertices: list[int],
              stats.skipped_disconnected, stats.skipped_duplicate)
 
 
-# ---------------------------------------------------------------------------
-# Structured counting-path edge-set builders
-# each returns a set of (u, v) bitstring-tuple edges, u < v lexicographically
-# ---------------------------------------------------------------------------
+# Structured counting-path edge-set builders: each returns a set of (u, v)
+# bitstring-tuple edges, u < v lexicographically.
 
 def _n_bits(n_vertices: int) -> int:
     return max(1, (n_vertices - 1).bit_length())
@@ -337,10 +318,9 @@ def generate_structured_graphs(n_vertices, n_graphs, seed=None,
                                stats: "Stats | None" = None):
     """Generate up to n_graphs unique connected structured graphs for one size.
 
-    Cycles through variant families (counting-path offsets/reversals,
-    XOR-permutations, extra-edge paths, then segment-reversed and perturbed for
-    boundary diversity). Deduplicated by graph6 hash. Returns a list of
-    (NetworkX graph, variant_name) pairs.
+    Cycles through variant families (counting-path offsets/reversals, XOR-perms,
+    extra-edge paths, then segment-reversed and perturbed for boundary
+    diversity), deduped by WL hash. Returns (graph, variant_name) pairs.
     """
     import networkx as nx
 
@@ -382,8 +362,7 @@ def generate_structured_graphs(n_vertices, n_graphs, seed=None,
             break
         add(xor_permuted_path(n_vertices, mask), "xor_permuted")
 
-    # 3) counting paths with extra edges - strongly matching-favorable, so fill
-    # from these before the more perturbative variants.
+    # 3) extra-edge paths - strongly matching-favorable, so fill from these first.
     k = 0
     while len(graphs) < n_graphs and k < n_graphs * 6:
         add(path_with_extra_edges(n_vertices, base,
@@ -391,8 +370,7 @@ def generate_structured_graphs(n_vertices, n_graphs, seed=None,
             "extra_edges")
         k += 1
 
-    # 4) segment-reversed (mildly perturbed, usually still matching-favorable)
-    # then lightly-perturbed paths for boundary diversity.
+    # 4) segment-reversed then lightly-perturbed paths for boundary diversity.
     k = 0
     while len(graphs) < n_graphs and k < n_graphs * 4:
         s = (seed or 0) + k
@@ -410,18 +388,17 @@ def generate_structured_graphs(n_vertices, n_graphs, seed=None,
     return graphs[:n_graphs]
 
 
-def generate_structured_corpus(out_g6: Path, vertices, n_graphs, base_seed,
+def generate_structured_dataset(out_g6: Path, vertices, n_graphs, base_seed,
                                stats: Stats, limit: int | None = None) -> None:
     """Generate structured graphs for each vertex count, appending to out_g6.
 
-    RESUMABLE: existing graphs in out_g6 are loaded and re-generated duplicates
-    are skipped, so a re-run only adds graphs (e.g. new vertex sizes) instead of
-    overwriting the corpus.
+    RESUMABLE: existing graphs are loaded and regenerated duplicates skipped, so
+    a re-run only adds graphs instead of overwriting the dataset.
     """
     import networkx as nx
 
     out_g6.parent.mkdir(parents=True, exist_ok=True)
-    log.info("generating structured corpus -> %s", out_g6)
+    log.info("generating structured dataset -> %s", out_g6)
 
     preexisting, written = load_existing_g6(out_g6)
 

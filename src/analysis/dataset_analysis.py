@@ -1,16 +1,8 @@
-"""Comparative data analysis of the ER and structured corpora.
+"""Comparative data analysis of the ER and structured datasets.
 
-All feature-based analysis is standardized (z-scored) so no feature dominates
-by numeric scale: importance and PCA use standardized inputs, and the
-distribution/scatter plots show pooled z-scores. Correlation is scale-invariant
-already. Produces both a printed/JSON balance report and a set of comparative
-plots (feature importance, label distribution, feature distributions,
-correlation heatmaps, feature-vs-target scatter, and a PCA projection).
-
-Reads data/<corpus>/features/graph_features.csv joined to
-data/<corpus>/labels/labels.csv on graph_id.
-
-This module is the importable library; run it via scripts/analyze_corpora.py.
+Feature-based analysis is standardized (z-scored) so no feature dominates by
+scale. Produces a JSON balance report plus comparative plots. Run via
+`scripts/dataset.py --stage analyze`.
 """
 
 from __future__ import annotations
@@ -19,7 +11,7 @@ import json
 import logging
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATA = _REPO_ROOT / "data"
 DEFAULT_PLOTS = _REPO_ROOT / "results" / "analysis"
 
@@ -29,8 +21,7 @@ IEEE_PAGE_WIDTH = 7.16  # full page (two columns)
 
 
 def set_ieee_style() -> None:
-    """Configure matplotlib for IEEE-paper figures: serif fonts, ~8pt, vector
-    PDF with embedded fonts. Called once before plotting."""
+    """Configure matplotlib for IEEE-paper figures (serif, ~8pt, vector PDF)."""
     import matplotlib as mpl
     mpl.rcParams.update({
         "font.family": "serif",
@@ -51,14 +42,13 @@ def set_ieee_style() -> None:
         "savefig.dpi": 300,
         "savefig.bbox": "tight",
         "savefig.pad_inches": 0.02,
-        # embed TrueType fonts so the PDF renders identically everywhere.
+        # embed TrueType fonts so the PDF renders identically everywhere
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
         "text.usetex": False,
     })
 
-# Features to analyze (the model's inputs). Booleans/degenerate ones included so
-# the report can flag them.
+# Features to analyze. Degenerate/boolean ones kept so the report can flag them.
 FEATURE_COLS = [
     "n_vertices", "edge_density", "avg_degree", "max_degree",
     "min_degree", "degree_variance", "max_matching_size", "spectral_gap",
@@ -68,53 +58,45 @@ FEATURE_COLS = [
 
 log = logging.getLogger("analysis")
 
-# Corpora shown in the analysis, in order, with their plot colors. The hybrid
-# is the balanced subset drawn from er + structured.
-CORPORA = [
+# Datasets shown, in order, with plot colors. balanced is the subset of er+structured.
+DATASETS = [
     ("er", "tab:blue"),
     ("structured", "tab:orange"),
-    ("hybrid", "tab:green"),
+    ("balanced", "tab:green"),
 ]
-CORPUS_NAMES = [c for c, _ in CORPORA]
-CORPUS_COLOR = dict(CORPORA)
+DATASET_NAMES = [c for c, _ in DATASETS]
+DATASET_COLOR = dict(DATASETS)
 # Display names for plot titles/legends.
-CORPUS_LABEL = {
+DATASET_LABEL = {
     "er": "Erdős-Rényi",
     "structured": "structured",
-    "hybrid": "hybrid",
+    "balanced": "balanced",
 }
-# Distinct marker per corpus, so scatter/PCA points are distinguishable by shape
-# (not just color) even where they overlap or in grayscale.
-CORPUS_MARKER = {
-    "er": "o",        # circle
-    "structured": "^",  # triangle
-    "hybrid": "x",    # cross
+# Distinct marker per dataset, so points are distinguishable by shape in grayscale.
+DATASET_MARKER = {
+    "er": "o",
+    "structured": "^",
+    "balanced": "x",
 }
 
 
-def load_corpus(data_dir: Path, corpus: str):
-    """Load features joined to labels for one corpus. Returns a DataFrame."""
+def load_dataset(data_dir: Path, dataset: str):
+    """Load features joined to labels for one dataset. Returns a DataFrame."""
     import pandas as pd
-    feat = pd.read_csv(data_dir / corpus / "features" / "graph_features.csv")
-    lab = pd.read_csv(data_dir / corpus / "labels" / "labels.csv")
+    feat = pd.read_csv(data_dir / dataset / "features" / "graph_features.csv")
+    lab = pd.read_csv(data_dir / dataset / "labels" / "labels.csv")
     df = feat.merge(lab[["graph_id", "delta_cx", "delta_depth",
                          "cx_matching", "cx_pauli"]],
                     on="graph_id", how="inner")
-    df["corpus"] = corpus
+    df["dataset"] = dataset
     df["winner"] = df["delta_cx"].apply(
         lambda d: "matching" if d > 0 else ("pauli" if d < 0 else "tie"))
     return df
 
 
 def standardize(df):
-    """Add z-scored `<feature>_z` columns for the non-degenerate features.
-
-    All feature-based analysis (importance, PCA, distributions, scatter) uses
-    these standardized columns so no feature dominates by numeric scale and the
-    axes are comparable across features. Standardization is per corpus. (For
-    correlation this is a no-op since Pearson r is scale-invariant, but we keep
-    it uniform.)
-    """
+    """Add per-dataset z-scored `<feature>_z` columns for the non-degenerate
+    features, so no feature dominates by numeric scale."""
     import numpy as np
     cols = _model_features()
     for c in cols:
@@ -128,14 +110,14 @@ def standardize(df):
 # balance report
 # ---------------------------------------------------------------------------
 
-def balance_report(df, corpus: str) -> dict:
-    """Quantify label balance and feature-coverage balance for one corpus."""
+def balance_report(df, dataset: str) -> dict:
+    """Quantify label balance and feature-coverage balance for one dataset."""
     n = len(df)
     matching = int((df.delta_cx > 0).sum())
     pauli = int((df.delta_cx < 0).sum())
     ties = int((df.delta_cx == 0).sum())
 
-    # Label balance: how far from 50/50. imbalance_ratio = majority/minority.
+    # Label balance: imbalance_ratio = majority/minority.
     maj, mino = max(matching, pauli), max(min(matching, pauli), 1)
     imbalance_ratio = round(maj / mino, 1)
     minority_frac = round(min(matching, pauli) / n, 4) if n else 0.0
@@ -156,12 +138,11 @@ def balance_report(df, corpus: str) -> dict:
             continue
         vc = df[f].value_counts(normalize=True)
         mode_frac = round(float(vc.iloc[0]), 3) if len(vc) else 1.0
-        if mode_frac >= 0.90:  # flag near-constant features
+        if mode_frac >= 0.90:  # near-constant
             degenerate[f] = mode_frac
 
-    # A blunt verdict, so the report is actionable at a glance.
     if minority_frac < 0.05:
-        verdict = ("severely imbalanced: the minority class is <5% of graphs; "
+        verdict = ("severely imbalanced: the minority class is <5% of graphs. "
                    "a model trained here alone cannot learn it")
     elif minority_frac < 0.20:
         verdict = "imbalanced: minority class present but under-represented"
@@ -169,7 +150,7 @@ def balance_report(df, corpus: str) -> dict:
         verdict = "reasonably balanced"
 
     return {
-        "corpus": corpus,
+        "dataset": dataset,
         "n_graphs": n,
         "label_balance": {
             "matching_wins": matching,
@@ -189,17 +170,13 @@ def balance_report(df, corpus: str) -> dict:
 # plots
 # ---------------------------------------------------------------------------
 
-#: Set by run() so _savefig can report progress. 
+# Set by run() so _savefig can report progress.
 _PROGRESS = None
 
 
 def _edge_kw(marker: str) -> dict:
-    """`edgecolors="none"` iff the marker is a filled one.
-
-    An unfilled marker ('x', '+') is drawn entirely from its edge, so suppressing
-    the edge would erase it; matplotlib ignores the request and warns. Only pass
-    edgecolors where it means something.
-    """
+    """`edgecolors="none"` only for filled markers: an unfilled marker ('x','+')
+    is drawn entirely from its edge, so suppressing it would erase the marker."""
     from matplotlib.lines import Line2D
     return {"edgecolors": "none"} if marker in Line2D.filled_markers else {}
 
@@ -215,11 +192,9 @@ def _savefig(fig, out_dir: Path, name: str):
         log.info("wrote %s", pdf)
 
 
-def plot_label_distribution(corpora, out_dir: Path):
-    """Signed-log delta_cx distribution per corpus (single-column figure).
-
-    Signed-log keeps both the near-zero ties and the huge tails readable.
-    """
+def plot_label_distribution(datasets, out_dir: Path):
+    """Signed-log delta_cx distribution per dataset. Signed-log keeps both the
+    near-zero ties and the huge tails readable."""
     import numpy as np
     import matplotlib.pyplot as plt
 
@@ -227,29 +202,29 @@ def plot_label_distribution(corpora, out_dir: Path):
         return np.sign(x) * np.log10(np.abs(x) + 1)
 
     fig, ax = plt.subplots(figsize=(IEEE_COL_WIDTH, 2.6))
-    for name, df in corpora.items():
+    for name, df in datasets.items():
         ax.hist(slog(df.delta_cx), bins=60, alpha=0.5,
-                color=CORPUS_COLOR[name], label=CORPUS_LABEL[name], density=True)
+                color=DATASET_COLOR[name], label=DATASET_LABEL[name], density=True)
     ax.axvline(0, color="k", lw=1, ls="--")
     ax.set_xlabel("signed log10(|delta_cx| + 1)   (>0: matching cheaper)")
     ax.set_ylabel("fraction of graphs (normalised)")
-    ax.set_title("Cost-gap distribution per corpus")
+    ax.set_title("Cost-gap distribution per dataset")
     ax.legend()
     fig.tight_layout()
     _savefig(fig, out_dir, "label_distribution")
     plt.close(fig)
 
 
-def plot_win_rate_vs_n(corpora, out_dir: Path):
+def plot_win_rate_vs_n(datasets, out_dir: Path):
     """Matching-win rate as a function of graph size (single-column figure)."""
     import matplotlib
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(IEEE_COL_WIDTH, 2.6))
-    for name, df in corpora.items():
+    for name, df in datasets.items():
         g = df.groupby("n_vertices")["delta_cx"].apply(lambda s: (s > 0).mean())
-        ax.plot(g.index, g.values, "o-", color=CORPUS_COLOR[name],
-                label=CORPUS_LABEL[name])
+        ax.plot(g.index, g.values, "o-", color=DATASET_COLOR[name],
+                label=DATASET_LABEL[name])
     ax.axhline(0.5, color="k", lw=1, ls=":")
     ax.set_xscale("log", base=2)
     ax.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
@@ -264,27 +239,19 @@ def plot_win_rate_vs_n(corpora, out_dir: Path):
 
 
 def _model_features() -> list:
-    """Features fed to the importance model: all except the degenerate ones
-    (is_bipartite, is_tree, is_regular) and n_vertices (a design axis, not a
-    graph-structure feature). The redundant scale features (edge_count,
-    cycle_count, chromatic_index_lower_bound) are no longer extracted at all, so
-    they need not be dropped here."""
+    """Features fed to the importance model: all except the degenerate booleans
+    and n_vertices (a design axis, not a graph-structure feature)."""
     drop = {"is_bipartite", "is_tree", "is_regular", "n_vertices"}
     return [c for c in FEATURE_COLS if c not in drop]
 
 
 def feature_importance(df) -> "dict[str, float]":
-    """Permutation importance of each feature for predicting delta_cx.
+    """Permutation importance of each z-scored feature for predicting delta_cx.
 
-    Features are z-scored (importance reflects structure, not numeric scale) and
-    the redundant raw-scale features are excluded up front (see _model_features:
-    edge_count and cycle_count are dropped in favour of edge_density, etc.).
-    Removing redundancy matters because permutation importance is unreliable
-    under collinearity: given two features that are scalar multiples (edge_count
-    vs edge_density for a fixed n) a tree splits arbitrarily on one and the
-    other spuriously looks unimportant. A RandomForest is fit and each feature's
-    importance is the mean drop in held-out R^2 when it is shuffled (sklearn
-    permutation_importance). Returns {feature: importance}, summing to 1.
+    Redundant collinear features are excluded up front because permutation
+    importance is unreliable under collinearity (a tree splits arbitrarily on one
+    of two correlated features, making the other look spuriously unimportant).
+    Returns {feature: importance}, summing to 1.
     """
     import numpy as np
     from sklearn.ensemble import RandomForestRegressor
@@ -292,7 +259,7 @@ def feature_importance(df) -> "dict[str, float]":
     from sklearn.model_selection import train_test_split
 
     cols = _model_features()
-    X = df[[f"{c}_z" for c in cols]].to_numpy(dtype=float)  # standardized
+    X = df[[f"{c}_z" for c in cols]].to_numpy(dtype=float)
     y = df["delta_cx"].to_numpy(dtype=float)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=0)
     rf = RandomForestRegressor(n_estimators=200, max_depth=None,
@@ -305,44 +272,39 @@ def feature_importance(df) -> "dict[str, float]":
     return {c: float(v / total) for c, v in zip(cols, imp)}
 
 
-def plot_feature_importance(corpora, out_dir: Path) -> dict:
-    """Permutation feature importance for delta_cx, one panel per corpus.
-
-    Returns {"importance": {corpus: {feat: imp}}, "order": {corpus: [feats]}}
-    so the downstream plots can order features by importance.
-    """
+def plot_feature_importance(datasets, out_dir: Path) -> dict:
+    """Permutation feature importance for delta_cx, one panel per dataset.
+    Returns {"importance": {dataset: {feat: imp}}, "order": {dataset: [feats]}}."""
     import matplotlib.pyplot as plt
 
-    imps = {name: feature_importance(df) for name, df in corpora.items()}
+    imps = {name: feature_importance(df) for name, df in datasets.items()}
     order = {name: sorted(imp, key=imp.get, reverse=True)
              for name, imp in imps.items()}
 
-    # Each panel is ordered by its OWN importance (most important on top), so
-    # the feature order differs between panels; no sharey (that would force a
-    # single shared order and mislabel the bars).
-    n = len(corpora)
+    # Each panel ordered by its OWN importance, no sharey (a shared order would
+    # mislabel the bars).
+    n = len(datasets)
     fig, axes = plt.subplots(1, n, figsize=(IEEE_PAGE_WIDTH, 3.4))
     axes = axes if n > 1 else [axes]
     for ax, (name, imp) in zip(axes, imps.items()):
-        feats = sorted(imp, key=imp.get)  # ascending -> most important on top
-        ax.barh(feats, [imp[f] for f in feats], color=CORPUS_COLOR[name])
-        ax.set_title(CORPUS_LABEL[name])
+        feats = sorted(imp, key=imp.get)  # ascending: most important on top
+        ax.barh(feats, [imp[f] for f in feats], color=DATASET_COLOR[name])
+        ax.set_title(DATASET_LABEL[name])
         ax.set_xlabel("permutation importance")
         ax.tick_params(axis="y", labelsize=6)
-    fig.suptitle("Feature importance for delta_cx (per corpus)", y=1.01)
+    fig.suptitle("Feature importance for delta_cx (per dataset)", y=1.01)
     fig.tight_layout()
     _savefig(fig, out_dir, "feature_importance")
     plt.close(fig)
     return {"importance": imps, "order": order}
 
 
-def plot_feature_distributions(corpora, out_dir: Path, top_feats: list):
-    """Violins of ALL modeled features per corpus, ordered by importance.
+def plot_feature_distributions(datasets, out_dir: Path, top_feats: list):
+    """Violins of ALL modeled features per dataset, ordered by importance.
 
-    Features are standardized on the POOLED data so all corpora share a common
-    scale and their differences stay visible (per-corpus z-scoring would
-    collapse each to mean 0). top_feats sets the panel order (most important
-    first); any modeled feature not in it is appended.
+    Standardized on the POOLED data so datasets share a scale and their
+    differences stay visible. top_feats sets the panel order (most important
+    first). modeled features not in it are appended.
     """
     import math
     import pandas as pd
@@ -351,31 +313,31 @@ def plot_feature_distributions(corpora, out_dir: Path, top_feats: list):
 
     modeled = _model_features()
     feats = [f for f in top_feats if f in modeled]
-    feats += [f for f in modeled if f not in feats]  # append the rest
+    feats += [f for f in modeled if f not in feats]
 
-    both = pd.concat(corpora.values(), ignore_index=True)
+    both = pd.concat(datasets.values(), ignore_index=True)
     for f in feats:  # pooled z-score
         v = both[f].to_numpy(dtype=float)
         sd = v.std()
         both[f + "_pz"] = (v - v.mean()) / (sd if sd > 0 else 1.0)
 
-    palette = {name: CORPUS_COLOR[name] for name in corpora}
+    palette = {name: DATASET_COLOR[name] for name in datasets}
     ncol = 5
     nrow = math.ceil(len(feats) / ncol)
     fig, axes = plt.subplots(nrow, ncol,
                              figsize=(IEEE_PAGE_WIDTH, 1.9 * nrow))
     axes = axes.ravel()
     for ax, f in zip(axes, feats):
-        sns.violinplot(data=both, x="corpus", y=f + "_pz", ax=ax, hue="corpus",
-                       order=list(corpora), palette=palette, legend=False,
+        sns.violinplot(data=both, x="dataset", y=f + "_pz", ax=ax, hue="dataset",
+                       order=list(datasets), palette=palette, legend=False,
                        cut=0)
         ax.set_title(f)
         ax.set_xlabel("")
         ax.set_ylabel("z-score")
-        ax.set_xticks(range(len(corpora)))
-        ax.set_xticklabels([CORPUS_LABEL[c] for c in corpora], rotation=30)
+        ax.set_xticks(range(len(datasets)))
+        ax.set_xticklabels([DATASET_LABEL[c] for c in datasets], rotation=30)
         ax.tick_params(axis="x", labelsize=5)
-    for ax in axes[len(feats):]:  # hide any empty panels
+    for ax in axes[len(feats):]:  # hide empty panels
         ax.set_visible(False)
     fig.suptitle("Feature distributions, standardized (ordered by importance)",
                  y=1.005)
@@ -385,7 +347,7 @@ def plot_feature_distributions(corpora, out_dir: Path, top_feats: list):
 
 
 def _cluster_order(df, cols) -> list:
-    """Order features by hierarchical clustering on |correlation|, so correlated
+    """Order features by hierarchical clustering on |correlation| so correlated
     features sit adjacent (distance = 1 - |corr|, average linkage)."""
     import numpy as np
     from scipy.cluster.hierarchy import linkage, leaves_list
@@ -398,35 +360,30 @@ def _cluster_order(df, cols) -> list:
     return [cols[i] for i in idx]
 
 
-def plot_correlation_heatmaps(corpora, out_dir: Path, top_feats: list):
-    """One feature-correlation heatmap per corpus over all modeled features.
-
-    Each panel is ordered by hierarchical clustering on ITS OWN correlation
-    matrix, so each corpus shows its own tightest correlation blocks (the
-    orders may therefore differ between panels).
-    """
+def plot_correlation_heatmaps(datasets, out_dir: Path):
+    """One feature-correlation heatmap per dataset over all modeled features.
+    Each panel is ordered by clustering on ITS OWN correlation matrix, so orders
+    may differ between panels."""
     import matplotlib.pyplot as plt
     import seaborn as sns
 
     cols = _model_features()
-    n = len(corpora)
+    n = len(datasets)
     fig, axes = plt.subplots(1, n, figsize=(IEEE_PAGE_WIDTH, 2.6))
     axes = axes if n > 1 else [axes]
     mesh = None
-    for i, (ax, (name, df)) in enumerate(zip(axes, corpora.items())):
-        ordered = _cluster_order(df, cols)  # independent per corpus
+    for i, (ax, (name, df)) in enumerate(zip(axes, datasets.items())):
+        ordered = _cluster_order(df, cols)  # independent per dataset
         corr = df[ordered].corr()
-        # cbar=False on every panel so all panels keep the same size; one
-        # shared colorbar is added on its own axis afterwards.
-        # y-labels shown on every panel: each has its own clustering order, so
-        # the row features differ between panels.
+        # cbar=False so panels keep equal size. one shared colorbar added after.
+        # y-labels on every panel: clustering order (thus row features) differs.
         sns.heatmap(corr, ax=ax, cmap="coolwarm", center=0, vmin=-1, vmax=1,
                     square=True, cbar=False, xticklabels=True,
                     yticklabels=True)
         mesh = ax.collections[0]
-        ax.set_title(CORPUS_LABEL[name])
+        ax.set_title(DATASET_LABEL[name])
         ax.tick_params(labelsize=4)
-    # Reserve right margin for a shared colorbar, so no panel loses width.
+    # Reserve right margin for a shared colorbar so no panel loses width.
     fig.tight_layout(rect=[0, 0, 0.9, 1])
     cax = fig.add_axes([0.915, 0.25, 0.012, 0.5])
     fig.colorbar(mesh, cax=cax)
@@ -435,15 +392,11 @@ def plot_correlation_heatmaps(corpora, out_dir: Path, top_feats: list):
     plt.close(fig)
 
 
-def plot_feature_vs_target(corpora, out_dir: Path, top_feats: list):
-    """Scatter of every modeled feature vs delta_cx, one cell per (corpus,
-    feature). Layout is corpora x features (rows = corpora, columns = features
-    in importance order) so the grid is wide, filling a landscape slide.
-
-    Each feature axis is pooled-standardized (z-score across all corpora) so
-    each column shares a common x-scale; delta_cx uses a signed-log so both the
-    ties and the large tails stay visible.
-    """
+def plot_feature_vs_target(datasets, out_dir: Path, top_feats: list):
+    """Scatter of every modeled feature vs delta_cx, one cell per (dataset,
+    feature). Rows = datasets, columns = features in importance order. Each
+    feature axis is pooled-standardized so columns share an x-scale. delta_cx
+    uses signed-log so ties and large tails stay visible."""
     import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
@@ -455,52 +408,48 @@ def plot_feature_vs_target(corpora, out_dir: Path, top_feats: list):
     feats = [f for f in top_feats if f in modeled]
     feats += [f for f in modeled if f not in feats]
 
-    both = pd.concat(corpora.values(), ignore_index=True)
+    both = pd.concat(datasets.values(), ignore_index=True)
     zmean = {f: both[f].mean() for f in feats}
     zstd = {f: (both[f].std() or 1.0) for f in feats}
-    names = list(corpora)
+    names = list(datasets)
 
-    nrow, ncol = len(names), len(feats)          # corpora x features (wide)
+    nrow, ncol = len(names), len(feats)          # datasets x features
     fig, axes = plt.subplots(nrow, ncol,
                              figsize=(1.35 * ncol, 1.55 * nrow),
                              sharex="col", sharey="row", squeeze=False)
     for i, name in enumerate(names):
-        df = corpora[name]
-        marker = CORPUS_MARKER[name]
+        df = datasets[name]
+        marker = DATASET_MARKER[name]
         for j, f in enumerate(feats):
             ax = axes[i][j]
             xz = (df[f] - zmean[f]) / zstd[f]
             ax.scatter(xz, slog(df.delta_cx), s=4, alpha=0.35,
-                       marker=marker, color=CORPUS_COLOR[name],
+                       marker=marker, color=DATASET_COLOR[name],
                        rasterized=True, **_edge_kw(marker))
             ax.axhline(0, color="k", lw=0.5, ls="--")
             ax.tick_params(labelsize=6)
             if i == 0:
                 ax.set_title(f, fontsize=7, rotation=30, ha="left")
             if j == 0:
-                ax.set_ylabel(CORPUS_LABEL[name], fontsize=8)
+                ax.set_ylabel(DATASET_LABEL[name], fontsize=8)
             if i == nrow - 1:
                 ax.set_xlabel("z", fontsize=6)
-    fig.suptitle("delta_cx (signed-log) vs each feature, per corpus", y=1.005)
+    fig.suptitle("delta_cx (signed-log) vs each feature, per dataset", y=1.005)
     fig.tight_layout()
     _savefig(fig, out_dir, "feature_vs_target")
     plt.close(fig)
 
 
-def plot_pca(corpora, out_dir: Path):
-    """PCA of the feature space, one panel per corpus.
-
-    The projection is fit once on the source corpora (Erdős-Rényi + structured,
-    the full space) so all panels share the same axes and are comparable, then
-    each corpus is drawn in its own panel.
-    """
+def plot_pca(datasets, out_dir: Path):
+    """PCA of the feature space, one panel per dataset. The projection is fit
+    once on the source datasets (er + structured) so all panels share axes."""
     import pandas as pd
     import matplotlib.pyplot as plt
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import StandardScaler
 
     cols = _model_features()
-    sources = {k: v for k, v in corpora.items() if k != "hybrid"}
+    sources = {k: v for k, v in datasets.items() if k != "balanced"}
     both = pd.concat(sources.values(), ignore_index=True)
     scaler = StandardScaler().fit(both[cols].to_numpy(dtype=float))
     pca = PCA(n_components=2).fit(scaler.transform(
@@ -510,23 +459,23 @@ def plot_pca(corpora, out_dir: Path):
     def project(df):
         return pca.transform(scaler.transform(df[cols].to_numpy(dtype=float)))
 
-    projs = {name: project(df) for name, df in corpora.items()}
-    # Shared axis limits so the panels are directly comparable.
+    projs = {name: project(df) for name, df in datasets.items()}
+    # Shared axis limits so panels are directly comparable.
     allZ = [z for z in projs.values()]
     x_all = [v for z in allZ for v in z[:, 0]]
     y_all = [v for z in allZ for v in z[:, 1]]
     xlim = (min(x_all), max(x_all))
     ylim = (min(y_all), max(y_all))
 
-    n = len(corpora)
+    n = len(datasets)
     fig, axes = plt.subplots(1, n, figsize=(IEEE_PAGE_WIDTH, 2.6),
                              sharex=True, sharey=True)
     axes = axes if n > 1 else [axes]
     for ax, (name, Z) in zip(axes, projs.items()):
-        ax.scatter(Z[:, 0], Z[:, 1], s=6, marker=CORPUS_MARKER[name],
-                   alpha=0.4, color=CORPUS_COLOR[name], rasterized=True,
-                   **_edge_kw(CORPUS_MARKER[name]))
-        ax.set_title(CORPUS_LABEL[name])
+        ax.scatter(Z[:, 0], Z[:, 1], s=6, marker=DATASET_MARKER[name],
+                   alpha=0.4, color=DATASET_COLOR[name], rasterized=True,
+                   **_edge_kw(DATASET_MARKER[name]))
+        ax.set_title(DATASET_LABEL[name])
         ax.set_xlabel(f"PC1 ({ev[0]*100:.0f}%)")
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
@@ -539,40 +488,39 @@ def plot_pca(corpora, out_dir: Path):
 
 
 def run(data_dir: Path, plots_dir: Path) -> dict:
-    """Load all corpora, write all plots, return the combined balance report."""
+    """Load all datasets, write all plots, return the combined balance report."""
     global _PROGRESS
-    from utils.progress import Progress
+    from progress import Progress
 
     set_ieee_style()
-    corpora = {name: standardize(load_corpus(data_dir, name))
-               for name in CORPUS_NAMES}
-    log.info("loaded %s", {k: len(v) for k, v in corpora.items()})
+    datasets = {name: standardize(load_dataset(data_dir, name))
+               for name in DATASET_NAMES}
+    log.info("loaded %s", {k: len(v) for k, v in datasets.items()})
 
-    # Eight plots, each rendered at 300 dpi. This is where the time goes.
+    # Eight plots at 300 dpi. this is where the time goes.
     _PROGRESS = Progress(total=8, unit="plot")
     print(f"rendering {_PROGRESS.total} plots")
 
-    # Feature importance decides which features get the detailed treatment, so
-    # the distribution/scatter plots are data-driven, not hand-picked.
-    imp = plot_feature_importance(corpora, plots_dir)
-    # Top features to highlight: interleave each corpus's ranking, dedup.
+    # Feature importance decides which features get the detailed treatment.
+    imp = plot_feature_importance(datasets, plots_dir)
+    # Top features: interleave each dataset's ranking, dedup.
     top = []
-    for tup in zip(*[imp["order"][c] for c in CORPUS_NAMES]):
+    for tup in zip(*[imp["order"][c] for c in DATASET_NAMES]):
         for f in tup:
             if f not in top:
                 top.append(f)
 
-    plot_label_distribution(corpora, plots_dir)
-    plot_win_rate_vs_n(corpora, plots_dir)
-    plot_feature_distributions(corpora, plots_dir, top)
-    plot_correlation_heatmaps(corpora, plots_dir, top)
-    plot_feature_vs_target(corpora, plots_dir, top)
-    pca_info = plot_pca(corpora, plots_dir)
+    plot_label_distribution(datasets, plots_dir)
+    plot_win_rate_vs_n(datasets, plots_dir)
+    plot_feature_distributions(datasets, plots_dir, top)
+    plot_correlation_heatmaps(datasets, plots_dir)
+    plot_feature_vs_target(datasets, plots_dir, top)
+    pca_info = plot_pca(datasets, plots_dir)
 
     _PROGRESS.done()
     _PROGRESS = None
 
-    report = {name: balance_report(df, name) for name, df in corpora.items()}
+    report = {name: balance_report(df, name) for name, df in datasets.items()}
     report["feature_importance"] = imp["importance"]
     report["top_features"] = top[:6]
     report["pca"] = pca_info

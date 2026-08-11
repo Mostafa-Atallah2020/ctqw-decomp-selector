@@ -1,17 +1,17 @@
 """A single progress reporter, so every script's terminal output looks the same.
 
 
-    from utils.progress import Progress
+    from progress import Progress
 
     prog = Progress(total=len(items), unit="graph")
     for item in items:
         ...
-        prog.step(f"n={item.n} {item.corpus}")     # prints one line
+        prog.step(f"n={item.n} {item.dataset}")     # prints one line
     prog.done()                                     # prints the total elapsed
 
 Output:
 
-    [ 45/240] hybrid/xgboost seed=2   | 1.4s | elapsed 01m 03s | ETA 04m 22s
+    [ 45/240] balanced/xgboost seed=2   | 1.4s | elapsed 01m 03s | ETA 04m 22s
     done in 5m 25s
 
 The ETA is a running mean over the steps taken so far, which is right when steps
@@ -72,9 +72,8 @@ class Progress:
             return None
 
         if self._remaining_by_key:
-            # Cost varies by key: estimate each group from its own measured mean,
-            # falling back to the slowest measured key for groups not yet seen
-            # (cost grows with size, so that is a floor rather than a guess).
+            # ETA per key from its own measured mean, falling back to the slowest
+            # measured key for groups not yet seen.
             eta = 0.0
             measured = [self._time_by_key[k] / self._count_by_key[k]
                         for k in self._count_by_key]

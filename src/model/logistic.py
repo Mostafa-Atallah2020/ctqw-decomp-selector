@@ -1,42 +1,16 @@
 """Logistic-regression decomposition selector.
 
-Frames the task as binary classification: given a graph's topology features,
-predict whether MATCHING wins (delta_cx > 0) or PAULI wins (delta_cx < 0). Ties
-(delta_cx == 0) are excluded. Logistic regression is the only model for this
-project: the goal is the win/lose decision, not the magnitude of the gap.
+Binary classification: from a graph's topology features, predict whether MATCHING
+wins (delta_cx > 0) or PAULI wins (delta_cx < 0). Ties are excluded. One
+L2-regularized fit PER DATASET (er, structured, balanced) on the 10 standardized
+features, with a leakage-safe (size, class)-stratified train/val/test split
+(StandardScaler fit on train rows only). The same estimator traces the training
+curve and reports the final held-out test metrics.
 
-One L2-regularized logistic regression is fit PER CORPUS (er, structured,
-hybrid) on the 10 standardized features, with a leakage-safe train/val/test
-split stratified by (size, class): the StandardScaler is fit on the training
-rows only. The same estimator both traces the training curve (warm_start, a
-fixed number of solver iterations) and reports the final held-out test metrics,
-so the curve and the reported numbers come from the identical fit.
+Outputs (to results/logistic_model/): metrics.csv, training_history.csv,
+test_predictions.csv, coefficients.csv, feature_regressions.csv.
 
-(A size-extrapolation holdout, training on n < 128 and testing on n = 128, is
-available behind RUN_EXTRAPOLATION but disabled by default: n = 128 is the
-largest labeled size and its two classes are trivially separable, so it is a
-weak check. True extrapolation to bigger n is future work, see HOLDOUT_N.)
-
-Outputs (to results/logistic_model/):
-
-  - metrics.csv           : held-out TEST metrics per corpus (accuracy,
-                            precision/recall/specificity/NPV, F1, MCC, Cohen's
-                            kappa, ROC-AUC, PR-AUC, log-loss, CX savings
-                            captured, and confusion-matrix counts).
-  - training_history.csv  : per-iteration train AND validation metrics per
-                            corpus (the progress curves).
-  - test_predictions.csv  : per-graph held-out test predictions (y_true, proba,
-                            n_vertices), feeding the ROC/PR/confusion/calibration
-                            plots.
-  - coefficients.csv      : learned per-corpus feature weights.
-  - feature_regressions.csv : per-corpus feature values + delta_cx for the
-                            feature-vs-target and decision-boundary plots.
-
-CX SAVINGS CAPTURED is the project's north-star: of all the CX gates matching
-could save over Pauli on the test set, what fraction does the model's "use
-matching" recommendation actually claim?
-
-This module is the importable library; run it via scripts/train_logistic.py.
+Run via scripts/train_logistic.py.
 """
 
 from __future__ import annotations
@@ -46,17 +20,17 @@ import logging
 import warnings
 from pathlib import Path
 
-# Reuse the analysis module's corpus loader, feature list, and target column so
-# the model trains on exactly the columns the analysis reported on.
-from utils.analysis.corpus_analysis import (
+# Reuse the analysis module's loader/feature list so the model trains on exactly
+# the columns the analysis reported on.
+from analysis.dataset_analysis import (
     DEFAULT_DATA,
     _model_features,
-    load_corpus,
+    load_dataset,
 )
 
 log = logging.getLogger("model")
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUT = _REPO_ROOT / "results" / "logistic_model"
 
 RANDOM_STATE = 0
@@ -65,16 +39,16 @@ RUN_EXTRAPOLATION = False
 N_ITERS = 50             # fixed lbfgs iterations traced for the training curve
 
 
-# Corpora to train on, in plot order.
-CORPORA = ["er", "structured", "hybrid"]
+# Datasets to train on, in plot order.
+DATASETS = ["er", "structured", "balanced"]
 
 
-def _load_binary(data_dir: Path, corpus: str):
-    """Load one corpus, drop ties, and build the binary target.
+def _load_binary(data_dir: Path, dataset: str):
+    """Load one dataset, drop ties, add a `matching_wins` {0,1} column.
 
-    Returns (df, feature_cols). `df` gains a `matching_wins` column in {0, 1}.
+    Returns (df, feature_cols).
     """
-    df = load_corpus(data_dir, corpus)
+    df = load_dataset(data_dir, dataset)
     df = df[df.delta_cx != 0].copy()
     df["matching_wins"] = (df.delta_cx > 0).astype(int)
     return df, _model_features()
@@ -82,12 +56,10 @@ def _load_binary(data_dir: Path, corpus: str):
 
 def _savings_captured(delta_cx, y_pred) -> float:
     """CX savings captured: fraction of matching's total realizable CX savings
-    that the model claims by recommending matching.
+    the model claims by recommending matching.
 
-    numerator   = sum of true delta_cx over graphs the model sends to matching
-                  (negative delta_cx among them are real losses a wrong "use
-                  matching" call incurs).
-    denominator = sum of true delta_cx over graphs where matching truly wins.
+    numerator = sum of true delta_cx over graphs sent to matching (wrong calls
+    subtract their real losses). Denominator = sum over graphs matching truly wins.
     """
     import numpy as np
     delta_cx = np.asarray(delta_cx, dtype=float)
@@ -100,9 +72,8 @@ def _savings_captured(delta_cx, y_pred) -> float:
 
 
 def _metrics(name, split, clf, Xte, yte, dcx_te) -> dict:
-    """Score a fitted classifier on a test split. Returns a flat dict of the
-    standard binary-classification metrics from the literature plus the
-    project's CX savings captured."""
+    """Score a fitted classifier on a test split: flat dict of the standard
+    binary-classification metrics plus CX savings captured."""
     import numpy as np
     from sklearn.metrics import (
         accuracy_score,
@@ -119,7 +90,7 @@ def _metrics(name, split, clf, Xte, yte, dcx_te) -> dict:
 
     y_pred = clf.predict(Xte)
 
-    # Probability-based metrics need scores; guard degenerate cases.
+    # Probability-based metrics need scores, guard degenerate cases.
     proba = None
     auc = ap = ll = float("nan")
     try:
@@ -159,18 +130,17 @@ def _metrics(name, split, clf, Xte, yte, dcx_te) -> dict:
 
 
 def _model():
-    """The single model estimator used for BOTH the training curve and the final
-    reported metrics. warm_start lets us trace its convergence one iteration at a
-    time (see _train_history) without switching to a different estimator."""
+    """The single estimator used for BOTH the training curve and the final
+    reported metrics. warm_start allows the per-iteration trace (see
+    _train_history)."""
     from sklearn.linear_model import LogisticRegression
     return LogisticRegression(max_iter=1000, warm_start=True,
                               random_state=RANDOM_STATE)
 
 
 def _epoch_scores(prefix, y, proba, dcx, classes) -> dict:
-    """The full metric set for one fold at one epoch, keyed with `prefix`
-    ('train'/'val'). Same definitions as the final test table (_metrics), so the
-    training curves and the results table are directly comparable."""
+    """Full metric set for one fold at one epoch, keyed with `prefix`
+    ('train'/'val'). Same definitions as _metrics."""
     import numpy as np
     from sklearn.metrics import (
         accuracy_score, average_precision_score,
@@ -206,19 +176,11 @@ def _epoch_scores(prefix, y, proba, dcx, classes) -> dict:
 
 
 def _train_history(model, Xtr, ytr, dcx_tr, Xva, yva, dcx_va):
-    """Trace `model`'s convergence, logging train AND validation metrics at each
-    iteration, then return (history_rows, fitted_model) so the SAME estimator is
-    used for the reported metrics.
+    """Trace `model`'s convergence (train AND val metrics per iteration) and
+    return (history_rows, fitted_model) so the SAME estimator reports the metrics.
 
-    Uses scikit-learn's official callback API (SLEP023, sklearn >= 1.10): a
-    custom FitCallback scores the full train/val metric set at each solver
-    iteration via `on_fit_task_end`, reading the per-iteration model off the
-    context. This replaces the earlier `warm_start`/`max_iter` refit trick (which
-    was needed only because older sklearn exposed no per-iteration hook; see
-    issue #26494, resolved by PR #33322/#33847).
-
-    Fallback: if the installed sklearn lacks the callback API, fall back to the
-    warm_start trace so the function still works on older versions.
+    Uses sklearn's callback API (SLEP023, sklearn >= 1.10) when available. Falls
+    back to a warm_start refit trace on older versions.
     """
     import numpy as np
     from sklearn.base import clone
@@ -232,15 +194,13 @@ def _train_history(model, Xtr, ytr, dcx_tr, Xva, yva, dcx_va):
         row.update(_epoch_scores("val", yva, pva, dcx_va, classes))
         return row
 
-    # Official callback path. sklearn.callback landed in sklearn 1.10; on anything
-    # older (this project pins >= 1.3 and runs on 1.7) the import fails and we take
-    # the warm_start fallback below. The type checker cannot see that this is
-    # deliberate, hence the ignore.
+    # Callback path (sklearn.callback, 1.10+), older versions ImportError into the
+    # warm_start fallback below.
     try:
         from sklearn.callback import FitCallback  # type: ignore[import-not-found]
 
         class _MetricTracer(FitCallback):
-            """Records the full metric set at each lbfgs iteration."""
+            """Record the full metric set at each lbfgs iteration."""
             def __init__(self):
                 self.rows = []
             def on_fit_task_begin(self, estimator, context, **kw):
@@ -248,7 +208,7 @@ def _train_history(model, Xtr, ytr, dcx_tr, Xva, yva, dcx_va):
             def on_fit_task_end(self, estimator, context, *, fitted_estimator=None,
                                 **kw):
                 clf = fitted_estimator if fitted_estimator is not None else estimator
-                # only the per-iteration subtasks carry a usable model
+                # only per-iteration subtasks carry a usable model
                 if not hasattr(clf, "coef_"):
                     return
                 self.rows.append(score_clf(len(self.rows) + 1, clf))
@@ -264,22 +224,19 @@ def _train_history(model, Xtr, ytr, dcx_tr, Xva, yva, dcx_va):
             warnings.simplefilter("ignore")
             clf.fit(Xtr, ytr)
         if tracer.rows:
-            # renumber sequentially in case the root 'fit' task also fired
+            # renumber sequentially in case the root 'fit' task fired too
             for i, r in enumerate(tracer.rows, start=1):
                 r["iteration"] = i
             return tracer.rows, clf
-        # callback produced nothing usable -> fall through to warm_start
+        # nothing usable -> fall through to warm_start
     except ImportError:
         pass
 
-    # Fallback: warm_start trace. This is NOT the same measurement as the callback
-    # path above: it refits from scratch at max_iter = 1, 2, 3, ... and scores each
-    # refit, which approximates the convergence curve rather than observing the
-    # solver's actual iterations. Say which path ran, so the curves in
-    # results/logistic_model/ are never ambiguous about how they were produced.
+    # Fallback: warm_start trace. Approximates the curve by refitting at
+    # max_iter=1,2,3,... rather than observing the solver's own iterations.
     history = []
     if getattr(model, "warm_start", False):
-        log.debug("sklearn.callback unavailable; tracing the training curve by "
+        log.debug("sklearn.callback unavailable, tracing the training curve by "
                   "warm_start refit (max_iter=1..%d)", N_ITERS)
         clf = clone(model)
         clf.set_params(warm_start=True)
@@ -297,8 +254,7 @@ def _train_history(model, Xtr, ytr, dcx_tr, Xva, yva, dcx_va):
 
 
 def _stratify_key(df):
-    """Stratification key: (vertex count, class), so every size is split within
-    itself and keeps its 50/50 class balance."""
+    """Stratification key: (vertex count, class)."""
     return df.n_vertices.astype(str) + "_" + df.matching_wins.astype(str)
 
 
@@ -314,12 +270,11 @@ def _write_csv(path: Path, rows: list) -> None:
 
 def _split_three(df):
     """Train/val/test split (~64/16/20), stratified by (size, class) when the
-    minority class is large enough; falls back to plain random otherwise (the
-    ER corpus has only ~20 matching-wins, too few to stratify safely)."""
+    minority class is large enough, else plain random (ER has too few
+    matching-wins to stratify safely)."""
     from sklearn.model_selection import train_test_split
     strat = _stratify_key(df)
-    # Every stratum needs >= 2 members to split; else stratify on the label only,
-    # else no stratification at all.
+    # Each stratum needs >= 2 to split, else stratify on label only, else not at all.
     if strat.value_counts().min() >= 2:
         key1 = strat
     elif df.matching_wins.value_counts().min() >= 4:
@@ -337,16 +292,15 @@ def _split_three(df):
     return df.loc[tr_idx], df.loc[val_idx], df.loc[test_idx], dev
 
 
-def _train_one_corpus(corpus, data_dir, feats):
-    """Train logistic regression on one corpus. Returns a dict with the history
-    rows, the test-metrics row, the held-out test predictions (for ROC/PR/
-    confusion/calibration plots), and the learned coefficients."""
+def _train_one_dataset(dataset, data_dir, feats):
+    """Train logistic regression on one dataset. Returns a dict with history rows,
+    the test-metrics row, held-out test predictions, and learned coefficients."""
     from sklearn.preprocessing import StandardScaler
 
-    df, _ = _load_binary(data_dir, corpus)
+    df, _ = _load_binary(data_dir, dataset)
     tr, val, test, dev = _split_three(df)
-    log.info("%s: %d graphs (%d matching / %d pauli); "
-             "split %d train / %d val / %d test", corpus, len(df),
+    log.info("%s: %d graphs (%d matching / %d pauli), "
+             "split %d train / %d val / %d test", dataset, len(df),
              int(df.matching_wins.sum()), int((df.matching_wins == 0).sum()),
              len(tr), len(val), len(test))
 
@@ -354,38 +308,35 @@ def _train_one_corpus(corpus, data_dir, feats):
     def X(frame):
         return scaler.transform(frame[feats].to_numpy(float))
 
-    # Trace the SAME estimator's convergence on train vs val (the curve)...
+    # Trace the SAME estimator's convergence on train vs val...
     history, _ = _train_history(
         _model(),
         X(tr), tr.matching_wins.to_numpy(), tr.delta_cx.to_numpy(float),
         X(val), val.matching_wins.to_numpy(), val.delta_cx.to_numpy(float))
     for row in history:                            # tag for grouping in plots
-        row["corpus"] = corpus
+        row["dataset"] = dataset
 
-    # ...then refit the same model class on train+val for the reported metrics.
+    # ...then refit on train+val for the reported metrics.
     clf = _model().fit(X(dev), dev.matching_wins.to_numpy())
     y_true = test.matching_wins.to_numpy()
-    test_row = _metrics("logistic", corpus, clf, X(test), y_true,
+    test_row = _metrics("logistic", dataset, clf, X(test), y_true,
                         test.delta_cx.to_numpy(float))
 
-    # Held-out test predictions (probability of "matching wins"), tagged with
-    # the graph size, for the threshold/probability diagnostic plots (incl. the
-    # per-n confusion matrices).
+    # Held-out test predictions (P(matching wins)), tagged with graph size for
+    # the diagnostic plots.
     proba = clf.predict_proba(X(test))[:, 1]
     nv = test.n_vertices.to_numpy()
-    preds = [{"corpus": corpus, "n_vertices": int(n),
+    preds = [{"dataset": dataset, "n_vertices": int(n),
               "y_true": int(t), "proba": round(float(p), 6)}
              for n, t, p in zip(nv, y_true, proba)]
 
-    # Learned coefficients on standardized features (the interpretability story).
-    # Also save the scaler's mean/scale per feature so the exact trained decision
-    # function can be reconstructed on RAW feature values downstream (e.g. the
-    # decision-boundary plot projects this real model, rather than refitting one).
-    coefs = [{"corpus": corpus, "feature": f, "coef": round(float(w), 6),
+    # Coefficients on standardized features, plus the scaler mean/scale per feature
+    # so the decision function can be reconstructed on raw values downstream.
+    coefs = [{"dataset": dataset, "feature": f, "coef": round(float(w), 6),
               "mean": round(float(m), 6), "scale": round(float(s), 6)}
              for f, w, m, s in zip(feats, clf.coef_.ravel(),
                                    scaler.mean_, scaler.scale_)]
-    coefs.append({"corpus": corpus, "feature": "(intercept)",
+    coefs.append({"dataset": dataset, "feature": "(intercept)",
                   "coef": round(float(clf.intercept_[0]), 6),
                   "mean": 0.0, "scale": 1.0})
 
@@ -394,45 +345,39 @@ def _train_one_corpus(corpus, data_dir, feats):
 
 
 def run(data_dir: Path = DEFAULT_DATA, out_dir: Path = DEFAULT_OUT) -> dict:
-    """Train logistic regression separately on each corpus (er, structured,
-    hybrid) with its own train/val/test split.
-
-    Writes:
-      - training_history.csv : per-epoch train AND validation metrics, per
-                               corpus (the progress curves).
-      - metrics.csv          : final held-out TEST metrics per corpus (the
-                               results table), from each model refit on train+val.
-    """
+    """Train logistic regression separately on each dataset (er, structured,
+    balanced) with its own train/val/test split. Writes training_history.csv
+    (per-epoch train/val curves) and metrics.csv (held-out test metrics)."""
     feats = _model_features()
     all_history, all_test, all_preds, all_coefs = [], [], [], []
-    for corpus in CORPORA:
-        if not (data_dir / corpus / "labels" / "labels.csv").exists():
-            log.warning("skipping '%s': no labels", corpus)
+    for dataset in DATASETS:
+        if not (data_dir / dataset / "labels" / "labels.csv").exists():
+            log.warning("skipping '%s': no labels", dataset)
             continue
-        r = _train_one_corpus(corpus, data_dir, feats)
+        r = _train_one_dataset(dataset, data_dir, feats)
         all_history.extend(r["history"])
         all_test.append(r["test_row"])
         all_preds.extend(r["preds"])
         all_coefs.extend(r["coefs"])
 
-    # Put corpus/epoch first in the history CSV for readability.
-    ordered = [{"corpus": r["corpus"], **{k: v for k, v in r.items()
-                                          if k != "corpus"}}
+    # Put dataset first in the history CSV for readability.
+    ordered = [{"dataset": r["dataset"], **{k: v for k, v in r.items()
+                                          if k != "dataset"}}
                for r in all_history]
     _write_csv(out_dir / "training_history.csv", ordered)
     _write_csv(out_dir / "metrics.csv", all_test)
     _write_csv(out_dir / "test_predictions.csv", all_preds)
     _write_csv(out_dir / "coefficients.csv", all_coefs)
 
-    # Feature values + signed cost gap per corpus, for the feature-vs-Δ_CX
-    # regression plot (how each property drives matching-favorability).
+    # Feature values + signed cost gap per dataset, for the feature-vs-delta_cx
+    # regression plot.
     import pandas as pd
     reg_frames = []
-    for corpus in CORPORA:
-        if (data_dir / corpus / "labels" / "labels.csv").exists():
-            d, _ = _load_binary(data_dir, corpus)
+    for dataset in DATASETS:
+        if (data_dir / dataset / "labels" / "labels.csv").exists():
+            d, _ = _load_binary(data_dir, dataset)
             sub = d[feats + ["delta_cx"]].copy()
-            sub.insert(0, "corpus", corpus)
+            sub.insert(0, "dataset", dataset)
             reg_frames.append(sub)
     if reg_frames:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -446,7 +391,7 @@ def run(data_dir: Path = DEFAULT_DATA, out_dir: Path = DEFAULT_OUT) -> dict:
         "n_features": len(feats),
         "features": feats,
         "target": "matching_wins = 1[delta_cx > 0]",
-        "corpora": [r["split"] for r in all_test],  # split == corpus name here
+        "datasets": [r["split"] for r in all_test],  # split == dataset name here
         "test_metrics": all_test,
         "out_dir": str(out_dir),
     }
