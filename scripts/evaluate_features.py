@@ -2,7 +2,7 @@
 """Feature-set evaluation experiments for the decomposition selector (CLI).
 
 Experiments routed by --mode: features, allmetrics (default), spectral.
---dataset defaults to mckay (the tested path for features/allmetrics; spectral
+--dataset defaults to mckay (the tested path for features/allmetrics, spectral
 supports other datasets via --dataset/--all-sizes).
 
 Examples:
@@ -45,7 +45,8 @@ ALLMETRICS_OUT = _ROOT / "results" / "evaluation" / "enrich_allmetrics_mckay.csv
 
 # features mode
 def _score_set_features(df, cols, seeds):
-    """Twelve-model ladder on a column set; returns best (model, mcc, savings) over
+    """Model comparison (twelve classifiers) on a column set. Returns best
+    (model, mcc, savings) over
     seeds and the per-model means."""
     per_model = {}
     for name, (est, needs_scale) in _bm.learned_models().items():
@@ -129,7 +130,7 @@ def run_features(args) -> int:
     pd.DataFrame(rows).to_csv(out, index=False)
     print(f"\nwrote {out}")
     print("\nReference: classical 0.150, +spectrum(prev) 0.242. spectral-rich is pure")
-    print("graph features; pauli-structure is derived from the decomposition (report")
+    print("graph features. pauli-structure is derived from the decomposition (report")
     print("separately: it is the mechanism, so treat any lift there as a cheap-predictor")
     print("result, not a pure-topology one).")
     return 0
@@ -141,11 +142,11 @@ def run_allmetrics(args) -> int:
     df = df[df.n_vertices == 8].reset_index(drop=True)
 
     # Decomposition features are already persisted in graph_features.csv, so load()
-    # returns them; read straight off the frame rather than recomputing.
+    # returns them, read straight off the frame rather than recomputing.
     classical = list(_bm.FEATURES)
-    # Only the two raw counts; derived diff/ratio and Hamming-weight stats excluded.
+    # Only the two raw counts. Derived diff/ratio and Hamming-weight stats excluded.
     decomp = ["pauli_num_terms", "match_num_matchings"]
-    print(f"{args.dataset}: {len(df)} graphs; decomposition features: {decomp}")
+    print(f"{args.dataset}: {len(df)} graphs. decomposition features: {decomp}")
     sets = {"classical": classical,
             "+decomp": classical + decomp,
             "decomp-only": decomp}
@@ -198,7 +199,7 @@ def spectral_features(g6_path: Path, n_expected: "int | None") -> pd.DataFrame:
     a single vertex count is in play.
 
     Rows follow g6 order (same as graph_features.csv) for a positional join. Summaries
-    are size-agnostic; the per-eigenvalue columns are added only when n_expected is a
+    are size-agnostic. The per-eigenvalue columns are added only when n_expected is a
     single size, since they would misalign across sizes (pass None to omit them).
     """
     rows = []
@@ -208,7 +209,7 @@ def spectral_features(g6_path: Path, n_expected: "int | None") -> pd.DataFrame:
         A = nx.to_numpy_array(G)
         L = np.diag(A.sum(axis=1)) - A
 
-        lap = np.sort(eigvalsh(L))          # ascending; lap[0] ~ 0 for connected
+        lap = np.sort(eigvalsh(L))          # ascending, lap[0] ~ 0 for connected
         adj = np.sort(eigvalsh(A))
 
         # Size-agnostic summaries, normalized where a raw value would scale with n.
@@ -238,7 +239,8 @@ def spectral_features(g6_path: Path, n_expected: "int | None") -> pd.DataFrame:
 
 
 def _score_set_spectral(df: pd.DataFrame, feat_cols: list, seeds: list) -> dict:
-    """Twelve-model ladder on a column set; return {model: (mcc, savings)} over seeds."""
+    """Model comparison (twelve classifiers) on a column set.
+    return {model: (mcc, savings)} over seeds."""
     from sklearn.preprocessing import StandardScaler
 
     out = {}
@@ -272,7 +274,7 @@ def run_spectral(args) -> int:
         n_mode = None
         print(f"{args.dataset}: {len(df)} graphs across "
               f"{df.n_vertices.nunique()} sizes, {int(df.y.sum())} matching-wins "
-              f"({100 * df.y.mean():.2f}%); size-agnostic spectral summaries only")
+              f"({100 * df.y.mean():.2f}%), size-agnostic spectral summaries only")
     else:
         # Single vertex count so the sorted spectrum lines up as fixed columns.
         n_mode = int(df.n_vertices.mode().iloc[0])
@@ -342,7 +344,7 @@ def main(argv=None) -> int:
     p.add_argument("--seeds", type=int, nargs="+", default=SEEDS)
     # features mode only
     p.add_argument("--sample", type=int, default=0,
-                   help="[features mode] use only N graphs (quick check; 0 = all)")
+                   help="[features mode] use only N graphs (quick check, 0 = all)")
     # spectral mode only
     p.add_argument("--all-sizes", action="store_true",
                    help="[spectral mode] keep every vertex count and use only "

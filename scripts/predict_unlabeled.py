@@ -1,50 +1,20 @@
 #!/usr/bin/env python3
-"""Predict on the UNLABELED graphs in the corpus, and score those predictions
-with the label-free estimators from the literature (CLI entry point).
+"""Predict on the UNLABELED graphs in data/, and score those predictions with
+label-free estimators (CLI entry point). Unlabeled = has features but no label
+row (labeling cost grows ~n^3.2, infeasible past n=256). Not a validation: with
+no labels every number is a model output or a shift-strained ESTIMATE.
 
-An unlabeled graph is one that has features in data/<corpus>/features/ but no row
-in data/<corpus>/labels/, i.e. it was generated and featurized, but labeling it
-was infeasible. Labeling cost grows as ~n^3.2 (measured), so it stops being
-practical past n=256: ~0.5 h/graph at n=512 and ~4.7 h/graph at n=1024, dominated
-by BUILDING the Pauli circuit rather than transpiling it.
-
-This script does NOT generate graphs, and it does not assemble corpora. It is a pure
-consumer of data/: every corpus it reports on, the hybrid included, is READ from disk,
-so every prediction is traceable to a stored graph. Build them first:
-
-    python scripts/generate_graphs.py  --corpus er         --vertices 512 1024 -n 100
-    python scripts/generate_graphs.py  --corpus structured --vertices 512 1024 -n 100
-    python scripts/extract_features.py --corpus er
-    python scripts/extract_features.py --corpus structured
-    python scripts/build_hybrid.py                 # carries the unlabeled graphs over
+Build inputs first, e.g.:
+    python scripts/dataset.py --stage features --dataset er
     python scripts/predict_unlabeled.py
 
-WHAT THIS IS: a deployment demonstration plus a reliability assessment.
-WHAT THIS IS NOT: a validation. With no labels at these sizes we cannot compute
-accuracy, MCC, or CX savings. Everything reported is either a model output or a
-label-free ESTIMATE whose own assumptions are strained under this much shift.
-
-Label-free scores (each with its caveat):
-
-  disagreement     Jiang et al., ICLR 2022, "Assessing Generalization of SGD via
-                   Disagreement": the rate at which independently trained models
-                   disagree on unlabeled data tracks the test error. ASYMMETRIC:
-                   a high rate PROVES unreliability, while unanimity is only weak
-                   evidence of correctness.
-  mean_confidence  Average max-probability (Guillory et al. 2021). Models get
-                   MORE confident and LESS accurate under shift (Ovadia et al.,
-                   NeurIPS 2019), so this is an upper bound at best.
-  atc_estimate     Average Thresholded Confidence (Garg et al., ICLR 2022): a
-                   confidence threshold calibrated on the labeled validation
-                   split; the fraction of unlabeled points above it estimates
-                   accuracy. Assumes MILD shift.
-  mahalanobis      Distance from the training feature distribution: how far out
-                   of distribution these graphs actually are.
-  features_oob     How many of the ten features fall outside the min/max range
-                   ever seen in training (a crude but readable shift signal).
+Label-free scores: disagreement (Jiang et al. ICLR 2022, asymmetric - high
+proves unreliability, unanimity only weak evidence), mean_confidence (Guillory
+2021), atc_estimate (Garg et al. ICLR 2022, assumes mild shift), mahalanobis
+(distance from training distribution), features_oob (features outside training
+min/max).
 
 Outputs:
-
   results/predictions/unlabeled_predictions.csv   per graph, per model
   results/predictions/per_model_predictions.csv   which models dissent, and where
   results/predictions/label_free_scores.csv       the estimates above
@@ -69,21 +39,19 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 
-from utils.analysis.corpus_analysis import DEFAULT_DATA, _model_features
-from utils.progress import Progress
+from analysis.dataset_analysis import DEFAULT_DATA, _model_features
+from progress import Progress
 
 FEATURES = _model_features()
-CORPORA = ("er", "structured", "hybrid")
+DATASETS = ("er", "structured", "balanced")
 SEED = 42
 OUT = _ROOT / "results" / "predictions"
 
 
 def models() -> dict:
-    """A deliberately diverse ensemble: the disagreement estimate is only
-    meaningful if the models have genuinely different inductive biases. All of
-    these score within noise of each other on the labeled test set (see the model
-    ladder in benchmark_models.py), so any disagreement out here is about
-    extrapolation, not about one model simply being worse."""
+    """Deliberately diverse ensemble: disagreement is only meaningful if the
+    models have different inductive biases. All score within noise on the labeled
+    test set, so disagreement here reflects extrapolation, not a weaker model."""
     return {
         "logistic": LogisticRegression(max_iter=1000, random_state=0),
         "dtree_d2": DecisionTreeClassifier(max_depth=2, random_state=0),
@@ -93,42 +61,37 @@ def models() -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
 # data: read what the pipeline already saved under data/
-# ---------------------------------------------------------------------------
-def _corpus_frames(corpus: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    d = DEFAULT_DATA / corpus
+def _dataset_frames(dataset: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    d = DEFAULT_DATA / dataset
     feat = pd.read_csv(d / "features" / "graph_features.csv")
     lab = pd.read_csv(d / "labels" / "labels.csv")
     return feat, lab
 
 
 def load_labeled() -> pd.DataFrame:
-    """The labeled hybrid corpus: what the ensemble trains on."""
-    feat, lab = _corpus_frames("hybrid")
+    """The labeled balanced dataset: what the ensemble trains on."""
+    feat, lab = _dataset_frames("balanced")
     df = feat.merge(lab[["graph_id", "delta_cx"]], on="graph_id", how="inner")
     df = df[df.delta_cx != 0].copy()
     df["y"] = (df.delta_cx > 0).astype(int)
     return df
 
 
-def load_unlabeled(corpus: str) -> pd.DataFrame:
-    """Graphs that have features but NO label: an anti-join against labels.csv.
+def load_unlabeled(dataset: str) -> pd.DataFrame:
+    """Graphs with features but NO label: an anti-join against labels.csv.
 
-    These are exactly the graphs the pipeline generated and featurized but could
-    not afford to label. Nothing is generated here; if this comes back empty, the
-    graphs have not been built yet (see the header for the two commands).
+    Nothing is generated here. If empty, the graphs have not been built yet.
     """
-    feat, lab = _corpus_frames(corpus)
+    feat, lab = _dataset_frames(dataset)
     unlabeled = feat[~feat.graph_id.isin(set(lab.graph_id))].copy()
-    unlabeled["corpus"] = corpus
+    unlabeled["dataset"] = dataset
     return unlabeled
 
 
-# ---------------------------------------------------------------------------
 def train_ensemble(labeled: pd.DataFrame):
-    """Fit every model on the labeled hybrid; hold out a validation split so ATC's
-    threshold can be calibrated on labeled data, as that method requires."""
+    """Fit every model on the labeled balanced, hold out a validation split to
+    calibrate ATC's threshold on labeled data, as that method requires."""
     train, val = train_test_split(
         labeled, test_size=0.2, random_state=SEED,
         stratify=labeled.n_vertices.astype(str) + "_" + labeled.y.astype(str))
@@ -137,12 +100,12 @@ def train_ensemble(labeled: pd.DataFrame):
     X_train, X_val = scaler.transform(train[FEATURES]), scaler.transform(val[FEATURES])
 
     fitted = {name: clone(m).fit(X_train, train.y) for name, m in models().items()}
-    print(f"ensemble trained on {len(train)} labeled hybrid graphs "
-          f"(+{len(val)} held out to calibrate ATC); "
+    print(f"ensemble trained on {len(train)} labeled balanced graphs "
+          f"(+{len(val)} held out to calibrate ATC), "
           f"sizes {sorted(labeled.n_vertices.unique())}")
 
-    # ATC threshold: the confidence quantile at which the fraction of validation
-    # points above it equals the model's validation accuracy.
+    # ATC threshold: confidence quantile where the fraction of val points above
+    # it equals the model's validation accuracy.
     atc_threshold = {}
     for name, clf in fitted.items():
         p = clf.predict_proba(X_val)[:, 1]
@@ -164,7 +127,7 @@ def predict(unlabeled: pd.DataFrame, fitted, scaler, train, shift) -> pd.DataFra
     lo, hi = train[FEATURES].min(), train[FEATURES].max()
 
     X = scaler.transform(unlabeled[FEATURES])
-    out = unlabeled[["graph_id", "corpus", "n_vertices"]].copy()
+    out = unlabeled[["graph_id", "dataset", "n_vertices"]].copy()
 
     for name, clf in fitted.items():
         p = clf.predict_proba(X)[:, 1]
@@ -179,10 +142,10 @@ def predict(unlabeled: pd.DataFrame, fitted, scaler, train, shift) -> pd.DataFra
 
 
 def score(predictions: pd.DataFrame, names: list[str], atc_threshold: dict) -> pd.DataFrame:
-    """The label-free estimates, per (corpus, size)."""
+    """The label-free estimates, per (dataset, size)."""
     pred_cols = [f"pred_{n}" for n in names]
     rows = []
-    for (corpus, size), g in predictions.groupby(["corpus", "n_vertices"]):
+    for (dataset, size), g in predictions.groupby(["dataset", "n_vertices"]):
         preds = g[pred_cols].to_numpy()
         confidences, atc = {}, {}
         for name in names:
@@ -191,7 +154,7 @@ def score(predictions: pd.DataFrame, names: list[str], atc_threshold: dict) -> p
             confidences[name] = float(c.mean())
             atc[name] = float((c >= atc_threshold[name]).mean())
         rows.append({
-            "corpus": corpus, "n_vertices": size, "n_graphs": len(g),
+            "dataset": dataset, "n_vertices": size, "n_graphs": len(g),
             "pct_predicted_matching": 100 * float(g["pred_logistic"].mean()),
             # disagreement: the fraction of graphs on which the models are NOT unanimous
             "ensemble_disagreement": float(
@@ -208,9 +171,9 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(
         description="Predict on the unlabeled graphs already in data/, and score "
                     "those predictions with label-free estimators.")
-    p.add_argument("--corpus", nargs="+", default=list(CORPORA),
-                   choices=list(CORPORA),
-                   help="corpora to report on (default: all)")
+    p.add_argument("--dataset", nargs="+", default=list(DATASETS),
+                   choices=list(DATASETS),
+                   help="datasets to report on (default: all)")
     p.add_argument("--sizes", type=int, nargs="+", default=None,
                    help="restrict to these vertex counts (default: every "
                         "unlabeled size found in data/)")
@@ -219,39 +182,39 @@ def main(argv=None) -> int:
     args = p.parse_args(list(argv) if argv is not None else None)
     args.out.mkdir(parents=True, exist_ok=True)
 
-    # The unlabeled graphs, straight from data/. 
-    per_corpus = {c: load_unlabeled(c) for c in args.corpus}
+    # The unlabeled graphs, straight from data/.
+    per_dataset = {c: load_unlabeled(c) for c in args.dataset}
     if args.sizes:
-        per_corpus = {c: df[df.n_vertices.isin(args.sizes)]
-                      for c, df in per_corpus.items()}
+        per_dataset = {c: df[df.n_vertices.isin(args.sizes)]
+                      for c, df in per_dataset.items()}
 
-    for corpus, df in per_corpus.items():
+    for dataset, df in per_dataset.items():
         sizes = sorted(df.n_vertices.unique())
-        print(f"{corpus:11s} {len(df):5d} unlabeled graphs in data/  sizes={sizes}")
+        print(f"{dataset:11s} {len(df):5d} unlabeled graphs in data/  sizes={sizes}")
 
-    if not any(len(df) for df in per_corpus.values()):
+    if not any(len(df) for df in per_dataset.values()):
         print("\nNo unlabeled graphs found. Generate and featurize them first:\n"
-              "  python scripts/generate_graphs.py  --corpus er         "
+              "  python scripts/dataset.py --stage generate --dataset er         "
               "--vertices 512 1024 -n 100\n"
-              "  python scripts/generate_graphs.py  --corpus structured "
+              "  python scripts/dataset.py --stage generate --dataset structured "
               "--vertices 512 1024 -n 100\n"
-              "  python scripts/extract_features.py --corpus er\n"
-              "  python scripts/extract_features.py --corpus structured\n"
-              "  python scripts/build_hybrid.py")
+              "  python scripts/dataset.py --stage features --dataset er\n"
+              "  python scripts/dataset.py --stage features --dataset structured\n"
+              "  python scripts/dataset.py --stage balanced")
         return 1
 
-    unlabeled = pd.concat(per_corpus.values(), ignore_index=True)
+    unlabeled = pd.concat(per_dataset.values(), ignore_index=True)
 
-    # Fit the ensemble on the labeled corpus, then predict.
-    prog = Progress(total=1 + len(unlabeled.groupby(["corpus", "n_vertices"])),
+    # Fit the ensemble on the labeled dataset, then predict.
+    prog = Progress(total=1 + len(unlabeled.groupby(["dataset", "n_vertices"])),
                     unit="step")
     fitted, scaler, train, atc_threshold, shift = train_ensemble(load_labeled())
-    prog.step(f"trained {len(models())} models on the labeled hybrid")
+    prog.step(f"trained {len(models())} models on the labeled balanced")
 
     parts = []
-    for (corpus, size), group in unlabeled.groupby(["corpus", "n_vertices"]):
+    for (dataset, size), group in unlabeled.groupby(["dataset", "n_vertices"]):
         parts.append(predict(group, fitted, scaler, train, shift))
-        prog.step(f"predicted {corpus} n={size} ({len(group)} graphs)")
+        prog.step(f"predicted {dataset} n={size} ({len(group)} graphs)")
     prog.done()
     predictions = pd.concat(parts, ignore_index=True)
     names = list(fitted)
@@ -259,12 +222,12 @@ def main(argv=None) -> int:
 
     # Per-model breakdown: the aggregate hides WHICH model dissents.
     per_model = []
-    for (corpus, size), g in predictions.groupby(["corpus", "n_vertices"]):
-        row = {"corpus": corpus, "n_vertices": size, "n_graphs": len(g)}
+    for (dataset, size), g in predictions.groupby(["dataset", "n_vertices"]):
+        row = {"dataset": dataset, "n_vertices": size, "n_graphs": len(g)}
         for name in names:
             row[name] = round(100 * float(g[f"pred_{name}"].mean()), 1)
         row["disagreement"] = float(scores[
-            (scores.corpus == corpus) & (scores.n_vertices == size)
+            (scores.dataset == dataset) & (scores.n_vertices == size)
         ].ensemble_disagreement.iloc[0])
         per_model.append(row)
     per_model = pd.DataFrame(per_model)
@@ -278,8 +241,8 @@ def main(argv=None) -> int:
     print("\n=== LABEL-FREE SCORES (estimates, not measurements) ===")
     print(scores.round(3).to_string(index=False))
     print("\nHow to read this: disagreement is ASYMMETRIC evidence. A high rate "
-          "PROVES the extrapolation is unreliable; unanimity is only weak evidence "
-          "of correctness. On the labeled corpus, where we can check, disagreement "
+          "PROVES the extrapolation is unreliable. Unanimity is only weak evidence "
+          "of correctness. On the labeled dataset, where we can check, disagreement "
           "is near zero and the true test MCC is ~0.96.")
 
     print(f"\n-> {args.out / 'unlabeled_predictions.csv'}")

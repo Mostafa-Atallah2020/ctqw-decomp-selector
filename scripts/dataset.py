@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Unified dataset-build pipeline (CLI entry point).
+"""Dataset build and analysis pipeline (CLI entry point).
 
-Six stages selected with --stage; each keeps its own flags.
+Six stages selected with --stage. Each keeps its own flags.
 
     generate   synthetic g6 dataset
     label      ground-truth decomposition-cost labels
@@ -19,7 +19,7 @@ Examples:
     python scripts/dataset.py --stage generate --dataset structured -n 100 \
         --vertices 8 16 32 64 128
 
-    # label: compute matching/Pauli cost labels (slow; resumable)
+    # label: compute matching/Pauli cost labels (slow, resumable)
     python scripts/dataset.py --stage label --dataset er
     python scripts/dataset.py --stage label --dataset structured
     python scripts/dataset.py --stage label --dataset er --limit 50
@@ -93,7 +93,7 @@ def run_generate(args) -> int:
 
     bad = [n for n in args.vertices if not _generate.is_power_of_two(n)]
     if bad:
-        logg.error("vertex counts must be powers of 2; offending: %s", bad)
+        logg.error("vertex counts must be powers of 2, offending: %s", bad)
         return 2
 
     default_out = (_generate.DEFAULT_ER_OUT if args.dataset == "er"
@@ -255,7 +255,7 @@ def run_balanced(args) -> int:
     if unl.get("total"):
         per_size = ", ".join(f"n={n}: {c}" for n, c in unl["per_size"].items())
         print(f"  unlabeled:     {unl['total']} carried into features only "
-              f"({per_size}; {unl['per_dataset']})")
+              f"({per_size}, {unl['per_dataset']})")
 
     print(f"  -> {args.out}")
     print(f"  done in {fmt_duration(time.perf_counter() - _t0)}")
@@ -326,12 +326,12 @@ def run_full(args) -> int:
     if len(df) != len(g6):
         raise SystemExit(
             f"{feat_path} has {len(df)} rows but the dataset has {len(g6)} graphs. "
-            f"The file is truncated; restore graph_features.classical.bak.csv (or the "
+            f"The file is truncated. Restore graph_features.classical.bak.csv (or the "
             f"committed version) before re-running.")
 
     g6_by_id = dict(zip(df["graph_id"], g6[: len(df)]))
 
-    # Only compute rows up to nmax; larger rows keep NaN in the new columns.
+    # Only compute rows up to nmax. Larger rows keep NaN in the new columns.
     todo = df[df.n_vertices <= args.nmax]
 
     # Resume support: skip rows a prior run already filled.
@@ -342,12 +342,12 @@ def run_full(args) -> int:
     if not args.no_pauli:
         n_pauli = int((todo.n_vertices <= args.pauli_nmax).sum())
         print(f"  Pauli/matching for {n_pauli} graphs at n<={args.pauli_nmax} "
-              f"(expensive); {len(done_ids)} already done, "
+              f"(expensive). {len(done_ids)} already done, "
               f"checkpointing every {args.checkpoint}")
 
     # Accumulate in a dict keyed by graph_id and flush every `checkpoint` graphs.
     def _flush(results):
-        # Left-join the added columns onto the full df (missing rows -> NaN); returns
+        # Left-join the added columns onto the full df (missing rows -> NaN). Returns
         # the added column names.
         add = pd.DataFrame.from_dict(results, orient="index")
         add.index.name = "graph_id"
@@ -410,7 +410,7 @@ def run_full(args) -> int:
     print(f"\nwrote {feat_path}")
     print(f"  +{len(topo)} spec_* topology features (pure), "
           f"+{len(leaky)} pauli_/match_ features (LEAKY)")
-    print(f"  total columns now {total_cols}; "
+    print(f"  total columns now {total_cols}, "
           f"rows with NaN new cols (n>{args.nmax}): "
           f"{int((df.n_vertices > args.nmax).sum())}")
     return 0
@@ -425,8 +425,8 @@ def run_refresh(args) -> int:
     # Guard: the features file must line up one-to-one with the graph dataset.
     if len(df) != len(g6):
         raise SystemExit(
-            f"{feat_path} has {len(df)} rows but the dataset has {len(g6)} graphs; "
-            f"refusing to run on a mismatched file.")
+            f"{feat_path} has {len(df)} rows but the dataset has {len(g6)} graphs. "
+            f"Refusing to run on a mismatched file.")
 
     if STAMP not in df.columns:
         df[STAMP] = False
@@ -434,7 +434,7 @@ def run_refresh(args) -> int:
 
     todo = df.index[(df.n_vertices <= args.nmax) & (~df[STAMP])].tolist()
     done_already = int(df[STAMP].sum())
-    print(f"{args.dataset}: {len(df)} graphs; {done_already} already refreshed, "
+    print(f"{args.dataset}: {len(df)} graphs, {done_already} already refreshed, "
           f"{len(todo)} to compute at n<={args.nmax}")
     if not todo:
         print("nothing to do")
@@ -501,9 +501,7 @@ def _analyze_print_report(report: dict) -> None:
 
 
 def run_analyze(args) -> int:
-    # Matplotlib logs every glyph it subsets into a PDF at INFO level, which buries
-    # our own output under hundreds of lines of font internals. Only surface its
-    # warnings.
+    # Quiet matplotlib/fontTools INFO spam, keep only warnings.
     for noisy in ("matplotlib", "matplotlib.font_manager", "fontTools",
                   "fontTools.subset", "PIL"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
@@ -538,7 +536,7 @@ def _add_generate_args(sp) -> None:
                     help="vertex counts, each a power of 2 (default: 8 16 32 64 128)")
     sp.add_argument("-p", "--probability", type=float, nargs="+",
                     default=[round(0.05 * k, 2) for k in range(1, 20)],
-                    help="ER edge probabilities (default: 0.05..0.95 step 0.05; "
+                    help="ER edge probabilities (default: 0.05..0.95 step 0.05, "
                          "ignored for --dataset structured)")
     sp.add_argument("-n", "--n-graphs", type=int, default=100,
                     help="unique graphs per cell/size (default: 100)")
@@ -596,17 +594,17 @@ def _add_persist_args(sp) -> None:
     # full-mode flags
     sp.add_argument("--pauli-nmax", type=int, default=32,
                     help="[full] largest size for the EXPENSIVE Pauli features "
-                         "(default 32; n=128 is ~7.5 s/graph, n=256 ~3 min/graph)")
+                         "(default 32, n=128 is ~7.5 s/graph, n=256 ~3 min/graph)")
     sp.add_argument("--no-pauli", action="store_true",
                     help="[full] skip the Pauli/matching features entirely "
                          "(spectral only)")
     sp.add_argument("--no-spectral", action="store_true",
                     help="[full] skip the spectral features entirely "
                          "(decomposition only)")
-    # shared flags (defaults differ per mode; resolved in run_persist)
+    # shared flags (defaults differ per mode, resolved in run_persist)
     sp.add_argument("--nmax", type=int, default=256,
                     help="largest size to featurize. In full mode this is the SPECTRAL "
-                         "cutoff (default 256); in refresh mode the vertex cutoff "
+                         "cutoff (default 256), in refresh mode the vertex cutoff "
                          "(default 256).")
     sp.add_argument("--checkpoint", type=int, default=None,
                     help="write the CSV every N graphs so an interrupted run is not lost. "
@@ -649,11 +647,9 @@ def main(argv=None) -> int:
 
     argv = list(argv) if argv is not None else sys.argv[1:]
 
-    # Route on the required --stage first, then hand the remaining flags to a
-    # stage-specific parser so each stage keeps its own flag defaults/semantics
-    # (e.g. --dataset is required for generate but defaults to "er" elsewhere).
+    # Route on --stage, then hand remaining flags to a per-stage parser.
     top = argparse.ArgumentParser(
-        description="Unified dataset-build pipeline "
+        description="Dataset build and analysis pipeline "
                     "(generate | label | features | persist | balanced | analyze).",
         add_help=False)
     top.add_argument("--stage", choices=tuple(_STAGES), required=True,
